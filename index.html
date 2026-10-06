@@ -885,7 +885,8 @@ function pickTarget(results){
     const cost=pp.dist/(target.size+.05)+3*pp.rd;
     if(cost<bc){bc=cost;best=pp}
   });
-  const ok=best&&(dt<.4?best.dist<.12:(best.rd<.3&&best.dist<.4));
+  const visibleBest=best?best.k.filter(Boolean).length:0;
+  const ok=best&&visibleBest>=4&&(dt<.4?best.dist<.16:(best.rd<.45&&best.dist<.5));
   if(!ok)return null;
   best.sel=true;target.x=best.c.x;target.y=best.c.y;target.size=target.size*.9+best.c.size*.1;
   if(best.ratio!=null)target.ratio=target.ratio==null?best.ratio:target.ratio*.98+best.ratio*.02;
@@ -962,49 +963,97 @@ function avgPresence(points){
    restent donc neutres et les mesures reposent sur la géométrie 2D. */
 function feature(imageK,worldK){
   if(!imageK?.length)return null;
-  const required=['left_shoulder','right_shoulder','left_hip','right_hip'].map(n=>idx[n]);
-  if(!required.every(i=>imageK[i]&&(imageK[i].visibility??1)>.15))return null;
 
-  const w=imageK;
-  const L0=w[idx.left_shoulder],R0=w[idx.right_shoulder],LH0=w[idx.left_hip],RH0=w[idx.right_hip];
-  const yaw=0, bf=false;
-  const vv=i=>{const q=imageK[i];return q?(q.visibility??1):0},zva=ids=>mean(ids.map(vv));
-  const ls=w[idx.left_shoulder],rs=w[idx.right_shoulder],lh=w[idx.left_hip],rh=w[idx.right_hip];
-  const c=mid(mid(ls,rs),mid(lh,rh));
-  const scale=Math.max(.08,dist(ls,rs));
-  const p=w.map(q=>q?{x:(q.x-c.x)/scale,y:(q.y-c.y)/scale,z:0,s:((q.visibility??1)+(q.presence??1))/2}:null);
-  const S=(a,b)=>dist(p[idx[a]],p[idx[b]]);
-  const sh=mid(p[idx.left_shoulder],p[idx.right_shoulder]),hip=mid(p[idx.left_hip],p[idx.right_hip]);
-  const safeAngle=(a,b,c)=>a&&b&&c?jointAngle(a,b,c):90;
-  const angles={
-    elbowL:safeAngle(p[idx.left_shoulder],p[idx.left_elbow],p[idx.left_wrist]),
-    elbowR:safeAngle(p[idx.right_shoulder],p[idx.right_elbow],p[idx.right_wrist]),
-    shoulderL:safeAngle(p[idx.left_elbow],p[idx.left_shoulder],p[idx.left_hip]),
-    shoulderR:safeAngle(p[idx.right_elbow],p[idx.right_shoulder],p[idx.right_hip]),
-    kneeL:safeAngle(p[idx.left_hip],p[idx.left_knee],p[idx.left_ankle]),
-    kneeR:safeAngle(p[idx.right_hip],p[idx.right_knee],p[idx.right_ankle]),
-    ankleL:safeAngle(p[idx.left_knee],p[idx.left_ankle],p[idx.left_foot_index]),
-    ankleR:safeAngle(p[idx.right_knee],p[idx.right_ankle],p[idx.right_foot_index])
+  const q=i=>imageK[i]||null;
+  const vv=i=>q(i)?(q(i).visibility??q(i).presence??0):0;
+  const valid=i=>!!q(i)&&vv(i)>=0.18;
+  const P=i=>valid(i)?q(i):null;
+  const D=(a,b)=>a&&b?dist(a,b):0;
+  const A=(a,b,c)=>a&&b&&c?jointAngle(a,b,c):90;
+  const midSafe=(a,b)=>a&&b?mid(a,b):(a||b||{x:0,y:0,z:0});
+  const meanPts=[];
+  [idx.nose,idx.left_shoulder,idx.right_shoulder,idx.left_hip,idx.right_hip,
+   idx.left_knee,idx.right_knee,idx.left_ankle,idx.right_ankle,
+   idx.left_wrist,idx.right_wrist].forEach(i=>{if(valid(i))meanPts.push(q(i))});
+
+  // MoveNet reste exploitable même lorsque le corps est partiellement hors cadre.
+  // Le centre et l'échelle sont calculés uniquement avec les points réellement visibles.
+  const shoulders=midSafe(P(idx.left_shoulder),P(idx.right_shoulder));
+  const hips=midSafe(P(idx.left_hip),P(idx.right_hip));
+  const coreCandidates=[];
+  [P(idx.left_shoulder),P(idx.right_shoulder),P(idx.left_hip),P(idx.right_hip),
+   P(idx.nose),P(idx.left_knee),P(idx.right_knee)].forEach(x=>{if(x)coreCandidates.push(x)});
+  const c=coreCandidates.length
+    ? {x:mean(coreCandidates.map(x=>x.x)),y:mean(coreCandidates.map(x=>x.y))}
+    : {x:.5,y:.5};
+
+  const rawScale=Math.max(
+    D(P(idx.left_shoulder),P(idx.right_shoulder)),
+    D(P(idx.left_hip),P(idx.right_hip)),
+    D(P(idx.left_shoulder),P(idx.left_hip)),
+    D(P(idx.right_shoulder),P(idx.right_hip)),
+    .08
+  );
+  const scale=rawScale;
+  const pnt=i=>{
+    const x=P(i);
+    return x?{x:(x.x-c.x)/scale,y:(x.y-c.y)/scale,z:0,s:vv(i)}:null;
   };
-  const footL=angle(p[idx.left_heel],p[idx.left_foot_index]),footR=angle(p[idx.right_heel],p[idx.right_foot_index]);
-  const pelvisYaw=Math.atan2(RH0.y-LH0.y,RH0.x-LH0.x)*180/Math.PI;
-  const wristMid=mid(p[idx.left_wrist],p[idx.right_wrist]);
-  const shoulderMidP=mid(p[idx.left_shoulder],p[idx.right_shoulder]);
-  const shoulderBack=0;
-  const handHeight=(shoulderMidP.y-wristMid.y)*4;
-  const kneeGap=Math.abs(p[idx.left_knee].x-p[idx.right_knee].x);
-  const ankleGap=Math.abs(p[idx.left_ankle].x-p[idx.right_ankle].x);
-  const legsCross=(kneeGap-ankleGap)*6;
-  const kneeFlex=(360-(angles.kneeL+angles.kneeR))/2;
+  const np=N.map((_,i)=>pnt(i));
+  const S=(a,b)=>D(np[idx[a]],np[idx[b]]);
+  const sh=midSafe(np[idx.left_shoulder],np[idx.right_shoulder]);
+  const hip=midSafe(np[idx.left_hip],np[idx.right_hip]);
+
+  const angles={
+    elbowL:A(np[idx.left_shoulder],np[idx.left_elbow],np[idx.left_wrist]),
+    elbowR:A(np[idx.right_shoulder],np[idx.right_elbow],np[idx.right_wrist]),
+    shoulderL:A(np[idx.left_elbow],np[idx.left_shoulder],np[idx.left_hip]),
+    shoulderR:A(np[idx.right_elbow],np[idx.right_shoulder],np[idx.right_hip]),
+    kneeL:A(np[idx.left_hip],np[idx.left_knee],np[idx.left_ankle]),
+    kneeR:A(np[idx.right_hip],np[idx.right_knee],np[idx.right_ankle]),
+    ankleL:A(np[idx.left_knee],np[idx.left_ankle],np[idx.left_foot_index]),
+    ankleR:A(np[idx.right_knee],np[idx.right_ankle],np[idx.right_foot_index])
+  };
+
+  const footL=angle(np[idx.left_heel],np[idx.left_foot_index]);
+  const footR=angle(np[idx.right_heel],np[idx.right_foot_index]);
+
+  // Avec MoveNet 2D, on ne prétend pas mesurer une vraie profondeur.
+  // L'orientation est estimée par la largeur apparente épaules/bassin.
+  const shW=D(P(idx.left_shoulder),P(idx.right_shoulder));
+  const hipW=D(P(idx.left_hip),P(idx.right_hip));
+  const shoulderVisible=valid(idx.left_shoulder)&&valid(idx.right_shoulder);
+  const hipVisible=valid(idx.left_hip)&&valid(idx.right_hip);
+  const widthRatio=shW/Math.max(.05,scale);
+  const yaw=shoulderVisible ? clamp((1-widthRatio)*95,0,75) : 0;
+  const bf=false;
+
+  const wristL=np[idx.left_wrist],wristR=np[idx.right_wrist];
+  const wristMid=(wristL&&wristR)?mid(wristL,wristR):(wristL||wristR||sh);
+  const handHeight=(sh.y-wristMid.y)*4;
+  const kneeL=np[idx.left_knee],kneeR=np[idx.right_knee];
+  const ankleL=np[idx.left_ankle],ankleR=np[idx.right_ankle];
+  const kneeGap=(kneeL&&kneeR)?Math.abs(kneeL.x-kneeR.x):0;
+  const ankleGap=(ankleL&&ankleR)?Math.abs(ankleL.x-ankleR.x):0;
+  const legsCross=(kneeL&&kneeR&&ankleL&&ankleR)?(kneeGap-ankleGap)*6:0;
+  const kneeFlex=(angles.kneeL<90||angles.kneeR<90)?(360-(angles.kneeL+angles.kneeR))/2:0;
   const legsRelax=clamp((ankleGap*1.5+kneeFlex/90)*35-35,-100,100);
 
+  const visibleCount=[idx.nose,idx.left_shoulder,idx.right_shoulder,idx.left_elbow,idx.right_elbow,
+    idx.left_wrist,idx.right_wrist,idx.left_hip,idx.right_hip,idx.left_knee,idx.right_knee,
+    idx.left_ankle,idx.right_ankle].filter(valid).length;
+  const coreCount=[idx.nose,idx.left_shoulder,idx.right_shoulder,idx.left_hip,idx.right_hip].filter(valid).length;
+  const confidence=clamp((visibleCount/13)*.65+(coreCount/5)*.35,0,1);
+
   return {
-    p,image:imageK,confidence:avgPresence(imageK),
-    head:{x:p[idx.nose]?.x||0,y:p[idx.nose]?.y||0,z:0},
-    shoulderAngle:angle(p[idx.left_shoulder],p[idx.right_shoulder]),
-    torsoAngle:angle(hip,sh),
-    torsoLean:Math.abs(sh.x),torsoDepth:0,
-    shoulderWidth:S('left_shoulder','right_shoulder'),pelvisWidth:S('left_hip','right_hip'),
+    p:np,image:imageK,confidence,
+    head:{x:np[idx.nose]?.x||0,y:np[idx.nose]?.y||0,z:0},
+    shoulderAngle:shoulderVisible?angle(np[idx.left_shoulder],np[idx.right_shoulder]):0,
+    torsoAngle:(np[idx.left_shoulder]||np[idx.right_shoulder])&&(np[idx.left_hip]||np[idx.right_hip])?angle(hip,sh):0,
+    torsoLean:Math.abs(sh.x),
+    torsoDepth:0,
+    shoulderWidth:shW/Math.max(.08,scale),
+    pelvisWidth:hipW/Math.max(.08,scale),
     arms:{
       L:S('left_shoulder','left_wrist'),R:S('right_shoulder','right_wrist'),
       upperL:S('left_shoulder','left_elbow'),upperR:S('right_shoulder','right_elbow'),
@@ -1017,10 +1066,19 @@ function feature(imageK,worldK){
     },
     legs:{L:S('left_hip','left_ankle'),R:S('right_hip','right_ankle')},
     feet:{L:S('left_heel','left_foot_index'),R:S('right_heel','right_foot_index'),angleL:footL,angleR:footR},
-    yaw,back:bf,pelvisYaw,handHeight,shoulderBack,legsCross,legsRelax,
-    zvis:{head:zva([0,2,5,7,8]),shoulders:zva([11,12]),arms:zva([11,12,13,14,15,16]),hands:zva([15,16,19,20]),torso:zva([11,12,23,24]),legs:zva([23,24,25,26,27,28]),feet:zva([27,28,29,30,31,32])},
-    asym:Math.abs(S('left_shoulder','left_wrist')-S('right_shoulder','right_wrist')),
-    center:{x:hip.x,y:hip.y,z:0},angles
+    yaw,back:bf,pelvisYaw:hipVisible?Math.atan2((P(idx.right_hip).y-P(idx.left_hip).y),(P(idx.right_hip).x-P(idx.left_hip).x))*180/Math.PI:0,
+    handHeight,shoulderBack:0,legsCross,legsRelax,
+    asym:(shoulderVisible&&hipVisible)?Math.abs(sh.x-hip.x):0,
+    angles,
+    zvis:{
+      head:mean([idx.nose,idx.left_eye,idx.right_eye].map(vv)),
+      shoulders:mean([idx.left_shoulder,idx.right_shoulder].map(vv)),
+      arms:mean([idx.left_elbow,idx.right_elbow,idx.left_wrist,idx.right_wrist].map(vv)),
+      hands:mean([idx.left_wrist,idx.right_wrist].map(vv)),
+      torso:mean([idx.left_shoulder,idx.right_shoulder,idx.left_hip,idx.right_hip].map(vv)),
+      legs:mean([idx.left_knee,idx.right_knee,idx.left_ankle,idx.right_ankle].map(vv)),
+      feet:mean([idx.left_ankle,idx.right_ankle].map(vv))
+    }
   };
 }
 
@@ -1436,7 +1494,7 @@ async function initModel(){
     bodyPose=await ml5.bodyPose('MoveNet',{flipped:false});
     bodyPose.detectStart(video,gotPoses);
     modelReady=true;
-    setStatus('MoveNet prêt',true);
+    setStatus('MoveNet prêt · caméra principale',true);
   }catch(e){
     console.error('MoveNet init error',e);
     modelReady=false;
@@ -1499,9 +1557,9 @@ function addEvent(d){
  const box=document.getElementById('events');if(box.querySelector('.small'))box.innerHTML='';box.prepend(e);while(box.children.length>6)box.lastChild.remove();
 }
 async function start(){
- if(stream){paused=false;running=true;setStatus(baseline?'Analyse des données en direct':'Source de données active — construire référence',true);raf=requestAnimationFrame(processFrame);return}
+ if(stream){paused=false;running=true;setStatus(baseline?'Analyse en direct · caméra principale':'Caméra principale active — construire référence',true);raf=requestAnimationFrame(processFrame);return}
  try{
-  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:960},height:{ideal:540}},audio:false});
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:960},height:{ideal:540}},audio:false});
   // MODE DONNÉES : le flux caméra est une source locale de frames pour MoveNet.
   // Aucun flux n'est enregistré, exporté ou affiché à l'écran.
   video.muted=true; video.autoplay=true; video.playsInline=true; video.srcObject=stream;
@@ -1514,7 +1572,7 @@ async function start(){
   const privacy=document.getElementById('dataPrivacy');
   if(privacy)privacy.textContent='Flux local · aucune vidéo enregistrée';
   if(!bodyPose)await initModel();
-  running=true;sessionStart=Date.now();patternState.stableSig=[];patternState.candidateSig=null;patternState.current='Stable';patternState.currentSince=performance.now();timelinePatternEvents.length=0;setStatus(baseline?'Analyse des données en direct':'Source de données active — construire référence',true);raf=requestAnimationFrame(processFrame);
+  running=true;sessionStart=Date.now();patternState.stableSig=[];patternState.candidateSig=null;patternState.current='Stable';patternState.currentSince=performance.now();timelinePatternEvents.length=0;setStatus(baseline?'Analyse en direct · caméra principale':'Caméra principale active — construire référence',true);raf=requestAnimationFrame(processFrame);
  }catch(e){console.error(e);setStatus('Caméra/modèle impossible');alert('Autorisez la caméra et utilisez HTTPS (GitHub Pages convient). Si MoveNet ne charge pas, vérifiez la connexion internet.')}
 }
 function calibrate(){
