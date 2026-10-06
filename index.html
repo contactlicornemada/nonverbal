@@ -507,22 +507,36 @@ canvas#timeline{background:#01080a!important}
 }
 </style>
 
-<style id="data-only-reference-v1">
-/* MODE DONNÉES : la caméra sert uniquement de source aux landmarks MediaPipe.
-   Aucune image vidéo n'est affichée ni enregistrée. */
-#video, #phoneVideo, #overlay, #miniCanvas, #phoneMini {
-  position:absolute!important;
-  width:1px!important;height:1px!important;
-  min-width:1px!important;min-height:1px!important;
-  opacity:0!important;
-  visibility:hidden!important;
+<style id="data-only-reference-v2">
+/* MODE DONNÉES : MoveNet analyse localement le flux caméra.
+   La vidéo peut être affichée comme aperçu, mais aucune image n'est enregistrée ou envoyée. */
+#video {
+  position:relative!important;
+  width:100%!important;height:100%!important;
+  min-width:0!important;min-height:0!important;
+  opacity:1!important;
+  visibility:visible!important;
   pointer-events:none!important;
-  left:-9999px!important;top:-9999px!important;
+  left:auto!important;top:auto!important;
+  object-fit:cover!important;
+}
+#phoneVideo {
+  position:absolute!important;
+  inset:0!important;
+  width:100%!important;height:100%!important;
+  min-width:0!important;min-height:0!important;
+  opacity:1!important;
+  visibility:visible!important;
+  pointer-events:none!important;
+  object-fit:cover!important;
+}
+#overlay,#miniCanvas,#phoneMini {
+  pointer-events:none!important;
 }
 .phone-dashboard{position:relative!important;top:auto!important;left:auto!important;transform:none!important;
   width:min(760px,calc(100% - 20px))!important;max-width:760px!important;margin:12px auto!important;
   max-height:none!important;overflow:visible!important}
-.pd-video-wrap{display:none!important}
+.pd-video-wrap{display:block!important}
 body{padding-top:0!important}
 .data-only-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;
   max-width:760px;margin:10px auto;padding:12px 14px;border:1px solid #16434a;
@@ -537,7 +551,7 @@ body{padding-top:0!important}
 </head>
 <body>
 <div class="data-only-banner" id="dataOnlyBanner">
-  <div><b>MODE DONNÉES</b> · La caméra sert uniquement à calculer les points corporels MediaPipe.</div>
+  <div><b>MODE DONNÉES</b> · La caméra sert de source locale pour calculer les points corporels MoveNet.</div>
   <div id="dataPrivacy">Aucune vidéo enregistrée</div>
 </div>
 <div class="data-reference" id="dataReference">
@@ -721,12 +735,9 @@ body{padding-top:0!important}
  <div class="disclaimer">Couleurs = intensité du changement observé, pas intensité d'une émotion.</div>
 </div>
 
+<script src="https://unpkg.com/ml5@1/dist/ml5.min.js"></script>
 <script type="module">
 const isMobile=matchMedia('(max-width:700px)').matches||/Android|iPhone|iPad/i.test(navigator.userAgent);
-let mpVer='0.10.21',mpMod;
-try{mpMod=await import(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${mpVer}/vision_bundle.mjs`)}
-catch(e){console.warn('version figée indisponible, repli sur latest',e);mpVer='latest';mpMod=await import('https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/vision_bundle.mjs')}
-const {FilesetResolver,PoseLandmarker,FaceDetector}=mpMod;
 
 const video=document.getElementById('video'),canvas=document.getElementById('overlay'),ctx=canvas.getContext('2d');
 const mini=document.getElementById('miniCanvas'),mctx=mini.getContext('2d');
@@ -734,13 +745,13 @@ const phoneMini=document.getElementById('phoneMini'),pmctx=phoneMini?phoneMini.g
 const phoneVideo=document.getElementById('phoneVideo');
 const tl=document.getElementById('timeline'),tctx=tl.getContext('2d');
 
-let poseLandmarker=null,stream=null,running=false,paused=false,mirror=true,baseline=null,candidate=null;
+let bodyPose=null,poseResults=[],stream=null,running=false,paused=false,mirror=true,baseline=null,candidate=null;
 let raf=0,calibrating=false,calib=[],lastFeature=null,lastVideoTime=-1,lastFrameTime=0,sensitivity=1,lastEvent=0;
 let timeline=[],sessionStart=0,calibStart=0,referenceState='none',modelReady=false;
 let inferenceBusy=false, lastInferenceTs=0, fpsN=0, fpsT=0;
 let smoothedZones=null;
-let backFacing=false,target=null,persons=[],tapPending=null;
-let swapLR=false,faceDet=null,faceFront=null,faceHit=0,faceMiss=0,lastFaceTs=0,faceMs=0;
+let target=null,persons=[],tapPending=null;
+let swapLR=false;
 const timelinePatternEvents=[];
 
 const N=[
@@ -771,18 +782,8 @@ const EDGES=[
 
 const SWP=(()=>{const m=Array.from({length:33},(_,i)=>i);[[1,4],[2,5],[3,6],[7,8],[9,10],[11,12],[13,14],[15,16],[17,18],[19,20],[21,22],[23,24],[25,26],[27,28],[29,30],[31,32]].forEach(([a,b])=>{m[a]=b;m[b]=a});return m})();
 function swapLM(a){return a?a.map((_,i)=>a[SWP[i]]):a}
-function updateFace(k){
- if(!faceDet||!k)return;
- const now=performance.now();if(now-lastFaceTs<90)return;lastFaceTs=now;
- const W=video.videoWidth,H=video.videoHeight;if(!W)return;
- const shPx=Math.hypot((k[11].x-k[12].x)*W,(k[11].y-k[12].y)*H);if(shPx<70)return; /* trop loin : un visage ne serait pas détecté */
- let res;faceMs=Math.max(faceMs+1,Math.round(now));
- try{res=faceDet.detectForVideo(video,faceMs)}catch(e){return}
- const hp=[0,2,5,7,8,9,10].map(i=>k[i]).filter(Boolean),cx=mean(hp.map(q=>q.x))*W,cy=mean(hp.map(q=>q.y))*H;
- const hit=(res.detections||[]).some(d=>{const b=d.boundingBox;return Math.hypot(b.originX+b.width/2-cx,b.originY+b.height/2-cy)<shPx*.9});
- if(hit){faceHit++;faceMiss=0;if(faceHit>=2)faceFront=true}
- else{faceMiss++;faceHit=0;if(faceMiss>=15&&Math.abs(lastFeature?.yaw??0)<65)faceFront=false}
-}
+function updateFace(k){ /* MoveNet n'utilise pas de détecteur de visage séparé. */ }
+
 function mapper(cw,ch,cover){
  const vw=video.videoWidth||16,vh=video.videoHeight||9,sc=cover?Math.max(cw/vw,ch/vh):Math.min(cw/vw,ch/vh),w=vw*sc,h=vh*sc,ox=(cw-w)/2,oy=(ch-h)/2;
  const f=q=>({x:(mirror?1-q.x:q.x)*w+ox,y:q.y*h+oy});
@@ -799,36 +800,98 @@ function drawIdle(){
  [[mini,mctx],[phoneMini,pmctx]].forEach(([cv,mc])=>{if(!cv||!mc)return;mc.clearRect(0,0,cv.width,cv.height);drawOthers(mc,mapper(cv.width,cv.height,false),Math.max(2,cv.width/50))});
 }
 /* --- suivi d'une cible parmi plusieurs personnes --- */
+
 function poseCenter(k){
- const pts=[11,12,23,24].map(i=>k[i]).filter(q=>q&&(q.visibility??1)>.2),a=pts.length?pts:[k[0]];
- return {x:mean(a.map(q=>q.x)),y:mean(a.map(q=>q.y)),size:Math.max(.03,Math.hypot(k[11].x-k[12].x,k[11].y-k[12].y))};
+  const pts=[11,12,23,24].map(i=>k[i]).filter(q=>q&&(q.visibility??1)>.2),a=pts.length?pts:[k[0]];
+  return {x:mean(a.map(q=>q.x)),y:mean(a.map(q=>q.y)),size:Math.max(.03,Math.hypot(k[11].x-k[12].x,k[11].y-k[12].y))};
 }
 function bodyRatio(w){
- if(!w||!w[11]||!w[23])return null;const d=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z),m=(a,b)=>({x:(a.x+b.x)/2,y:(a.y+b.y)/2,z:(a.z+b.z)/2});
- const t=d(m(w[11],w[12]),m(w[23],w[24]));return t>.05?d(w[11],w[12])/t:null;
+  if(!w||!w[11]||!w[23])return null;
+  const d=(a,b)=>Math.hypot(a.x-b.x,a.y-b.y,a.z-b.z),m=(a,b)=>({x:(a.x+b.x)/2,y:(a.y+b.y)/2,z:(a.z+b.z)/2});
+  const t=d(m(w[11],w[12]),m(w[23],w[24]));return t>.05?d(w[11],w[12])/t:null;
 }
 function lockTarget(pp){
- const had=!!target;target={x:pp.c.x,y:pp.c.y,size:pp.c.size,ratio:pp.ratio,seen:performance.now()};
- if(had){faceFront=null;faceHit=0;faceMiss=0;resetRealtimeSmoothing();lastFeature=null;if(baseline)setStatus('Nouvelle cible — refaire la référence si ce n’est pas la même personne',true)}
+  const had=!!target;target={x:pp.c.x,y:pp.c.y,size:pp.c.size,ratio:pp.ratio,seen:performance.now()};
+  if(had){resetRealtimeSmoothing();lastFeature=null;if(baseline)setStatus('Nouvelle cible — refaire la référence si ce n’est pas la même personne',true)}
 }
-function pickTarget(result){
- const L=result.landmarks||[],W=result.worldLandmarks||[];
- persons=L.map((k,i)=>({k,wk:W[i],c:poseCenter(k),ratio:bodyRatio(W[i]),sel:false}));
- if(!persons.length)return null;
- if(tapPending){
-  let best=null,bd=1e9;persons.forEach(pp=>{const d=Math.hypot(pp.c.x-tapPending.x,pp.c.y-tapPending.y);if(d<bd){bd=d;best=pp}});tapPending=null;
-  if(best&&(!target||Math.hypot(best.c.x-target.x,best.c.y-target.y)>.06))lockTarget(best);
- }
- if(!target){let best=null,bs=-1e9;persons.forEach(pp=>{const sc=pp.c.size*2-Math.hypot(pp.c.x-.5,pp.c.y-.5);if(sc>bs){bs=sc;best=pp}});lockTarget(best)}
- const now=performance.now(),dt=(now-target.seen)/1000;let best=null,bc=1e9;
- persons.forEach(pp=>{pp.dist=Math.hypot(pp.c.x-target.x,pp.c.y-target.y);pp.rd=(pp.ratio!=null&&target.ratio!=null)?Math.abs(pp.ratio-target.ratio):0;
-  const cost=pp.dist/(target.size+.05)+3*pp.rd;if(cost<bc){bc=cost;best=pp}});
- const ok=best&&(dt<.4?best.dist<.12:(best.rd<.3&&best.dist<.4));
- if(!ok)return null;
- best.sel=true;target.x=best.c.x;target.y=best.c.y;target.size=target.size*.9+best.c.size*.1;
- if(best.ratio!=null)target.ratio=target.ratio==null?best.ratio:target.ratio*.98+best.ratio*.02;
- target.seen=now;return best;
+
+/* MoveNet/BodyPose renvoie 17 points 2D. On les normalise vers le même
+   tableau interne de 33 points utilisé par l'interface. Les points absents
+   (doigts/talons) sont reconstruits de façon géométrique, sans prétendre
+   fournir une vraie profondeur 3D. */
+function moveNetTo33(pose){
+  const raw=pose?.keypoints||[];
+  const by={};
+  raw.forEach(q=>{if(q?.name)by[q.name]=q});
+  const Q=(name, fallback=null)=>{
+    const q=by[name]||fallback;
+    if(!q)return null;
+    return {x:q.x/(video.videoWidth||1),y:q.y/(video.videoHeight||1),z:0,
+      visibility:q.confidence??q.score??0,presence:q.confidence??q.score??0};
+  };
+  const out=new Array(33).fill(null);
+  const names=[
+    'nose','left_eye','left_eye','left_eye','right_eye','right_eye','right_eye',
+    'left_ear','right_ear','nose','nose','left_shoulder','right_shoulder',
+    'left_elbow','right_elbow','left_wrist','right_wrist',
+    'left_wrist','right_wrist','left_wrist','right_wrist','left_wrist','right_wrist',
+    'left_hip','right_hip','left_knee','right_knee','left_ankle','right_ankle',
+    'left_ankle','right_ankle','left_ankle','right_ankle'
+  ];
+  names.forEach((n,i)=>out[i]=Q(n));
+  const synthHand=(w,e,side)=>{
+    if(!w)return null;
+    const ex=w.x+(w.x-(e?.x??w.x))*.16, ey=w.y+(w.y-(e?.y??w.y))*.16;
+    const len=Math.max(.008,Math.hypot(w.x-(e?.x??w.x),w.y-(e?.y??w.y)));
+    const px=-(w.y-(e?.y??w.y))/len*.025*(side==='left'?-1:1);
+    const py=(w.x-(e?.x??w.x))/len*.025*(side==='left'?-1:1);
+    return {x:ex+px,y:ey+py,z:0,visibility:w.visibility,presence:w.presence};
+  };
+  out[19]=synthHand(out[15],out[13],'left'); out[17]=synthHand(out[15],out[13],'left');
+  out[21]=out[15]?{...out[15],x:out[15].x+(out[15].x-(out[13]?.x??out[15].x))*.10}:null;
+  out[20]=synthHand(out[16],out[14],'right'); out[18]=synthHand(out[16],out[14],'right');
+  out[22]=out[16]?{...out[16],x:out[16].x+(out[16].x-(out[14]?.x??out[16].x))*.10}:null;
+
+  const synthFoot=(ank,knee,forward)=>{
+    if(!ank)return null;
+    const dx=ank.x-(knee?.x??ank.x),dy=ank.y-(knee?.y??ank.y),len=Math.max(.01,Math.hypot(dx,dy));
+    return {x:ank.x+dx/len*.045*forward,y:ank.y+dy/len*.045*forward,z:0,visibility:ank.visibility,presence:ank.presence};
+  };
+  out[29]=synthFoot(out[27],out[25],-1); out[31]=synthFoot(out[27],out[25],1);
+  out[30]=synthFoot(out[28],out[26],-1); out[32]=synthFoot(out[28],out[26],1);
+  return out;
 }
+function pickTarget(results){
+  const arr=(results||[]).map(p=>({k:moveNetTo33(p),wk:moveNetTo33(p),c:null,ratio:null,sel:false}));
+  persons=arr;
+  persons.forEach(pp=>{pp.c=poseCenter(pp.k);pp.ratio=bodyRatio(pp.wk)});
+  if(!persons.length)return null;
+  if(tapPending){
+    let best=null,bd=1e9;
+    persons.forEach(pp=>{const d=Math.hypot(pp.c.x-tapPending.x,pp.c.y-tapPending.y);if(d<bd){bd=d;best=pp}});
+    tapPending=null;
+    if(best&&(!target||Math.hypot(best.c.x-target.x,best.c.y-target.y)>.06))lockTarget(best);
+  }
+  if(!target){
+    let best=null,bs=-1e9;
+    persons.forEach(pp=>{const sc=pp.c.size*2-Math.hypot(pp.c.x-.5,pp.c.y-.5);if(sc>bs){bs=sc;best=pp}});
+    lockTarget(best);
+  }
+  const now=performance.now(),dt=(now-target.seen)/1000;
+  let best=null,bc=1e9;
+  persons.forEach(pp=>{
+    pp.dist=Math.hypot(pp.c.x-target.x,pp.c.y-target.y);
+    pp.rd=(pp.ratio!=null&&target.ratio!=null)?Math.abs(pp.ratio-target.ratio):0;
+    const cost=pp.dist/(target.size+.05)+3*pp.rd;
+    if(cost<bc){bc=cost;best=pp}
+  });
+  const ok=best&&(dt<.4?best.dist<.12:(best.rd<.3&&best.dist<.4));
+  if(!ok)return null;
+  best.sel=true;target.x=best.c.x;target.y=best.c.y;target.size=target.size*.9+best.c.size*.1;
+  if(best.ratio!=null)target.ratio=target.ratio==null?best.ratio:target.ratio*.98+best.ratio*.02;
+  target.seen=now;return best;
+}
+
 function setStatus(t,on=false){
  document.getElementById('status').textContent=t;
  document.getElementById('floatStatus').textContent=t;
@@ -893,80 +956,72 @@ function avgPresence(points){
  return v.length?mean(v):0;
 }
 
-/* MediaPipe 33 landmarks + world landmarks.
-   Les calculs biomécaniques utilisent les worldLandmarks en 3D lorsque disponibles. */
+
+/* Adaptation MoveNet : 17 keypoints 2D normalisés vers le repère interne.
+   MoveNet ne fournit pas de worldLandmarks : les indicateurs de profondeur
+   restent donc neutres et les mesures reposent sur la géométrie 2D. */
 function feature(imageK,worldK){
- if(!imageK?.length)return null;
- let w=(worldK?.length===33?worldK:imageK);
- const required=['left_shoulder','right_shoulder','left_hip','right_hip'].map(n=>idx[n]);
- if(!required.every(i=>w[i]&&(w[i].visibility===undefined||w[i].visibility>.15)))return null;
+  if(!imageK?.length)return null;
+  const required=['left_shoulder','right_shoulder','left_hip','right_hip'].map(n=>idx[n]);
+  if(!required.every(i=>imageK[i]&&(imageK[i].visibility??1)>.15))return null;
 
- const L0=w[idx.left_shoulder],R0=w[idx.right_shoulder],LH0=w[idx.left_hip],RH0=w[idx.right_hip];
- let yaw=Math.atan2((R0.z-L0.z)+(RH0.z-LH0.z),(R0.x-L0.x)+(RH0.x-LH0.x));
- if(yaw>Math.PI/2)yaw-=Math.PI;else if(yaw<-Math.PI/2)yaw+=Math.PI;
- const dxs=imageK[idx.left_shoulder].x-imageK[idx.right_shoulder].x;
- if(faceDet&&faceFront!==null)backFacing=!faceFront;else if(Math.abs(dxs)>.04)backFacing=dxs<0;
- const bf=backFacing,yaw2=bf?yaw+Math.PI:yaw,cy=Math.cos(yaw2),sy=Math.sin(yaw2);
- w=w.map(q=>q?{...q,x:q.x*cy+q.z*sy,z:-q.x*sy+q.z*cy}:q);
- const vv=i=>{const q=imageK[i];return q?(q.visibility??1):0},zva=ids=>mean(ids.map(vv));
- const ls=w[idx.left_shoulder],rs=w[idx.right_shoulder],lh=w[idx.left_hip],rh=w[idx.right_hip];
- const c=mid(mid(ls,rs),mid(lh,rh));
- const scale=Math.max(.08,dist(ls,rs));
- const p=w.map(q=>q?{x:(q.x-c.x)/scale,y:(q.y-c.y)/scale,z:(q.z-c.z)/scale,s:((q.visibility??1)+(q.presence??1))/2}:null);
- const S=(a,b)=>dist(p[idx[a]],p[idx[b]]);
- const sh=mid(p[idx.left_shoulder],p[idx.right_shoulder]),hip=mid(p[idx.left_hip],p[idx.right_hip]);
+  const w=imageK;
+  const L0=w[idx.left_shoulder],R0=w[idx.right_shoulder],LH0=w[idx.left_hip],RH0=w[idx.right_hip];
+  const yaw=0, bf=false;
+  const vv=i=>{const q=imageK[i];return q?(q.visibility??1):0},zva=ids=>mean(ids.map(vv));
+  const ls=w[idx.left_shoulder],rs=w[idx.right_shoulder],lh=w[idx.left_hip],rh=w[idx.right_hip];
+  const c=mid(mid(ls,rs),mid(lh,rh));
+  const scale=Math.max(.08,dist(ls,rs));
+  const p=w.map(q=>q?{x:(q.x-c.x)/scale,y:(q.y-c.y)/scale,z:0,s:((q.visibility??1)+(q.presence??1))/2}:null);
+  const S=(a,b)=>dist(p[idx[a]],p[idx[b]]);
+  const sh=mid(p[idx.left_shoulder],p[idx.right_shoulder]),hip=mid(p[idx.left_hip],p[idx.right_hip]);
+  const safeAngle=(a,b,c)=>a&&b&&c?jointAngle(a,b,c):90;
+  const angles={
+    elbowL:safeAngle(p[idx.left_shoulder],p[idx.left_elbow],p[idx.left_wrist]),
+    elbowR:safeAngle(p[idx.right_shoulder],p[idx.right_elbow],p[idx.right_wrist]),
+    shoulderL:safeAngle(p[idx.left_elbow],p[idx.left_shoulder],p[idx.left_hip]),
+    shoulderR:safeAngle(p[idx.right_elbow],p[idx.right_shoulder],p[idx.right_hip]),
+    kneeL:safeAngle(p[idx.left_hip],p[idx.left_knee],p[idx.left_ankle]),
+    kneeR:safeAngle(p[idx.right_hip],p[idx.right_knee],p[idx.right_ankle]),
+    ankleL:safeAngle(p[idx.left_knee],p[idx.left_ankle],p[idx.left_foot_index]),
+    ankleR:safeAngle(p[idx.right_knee],p[idx.right_ankle],p[idx.right_foot_index])
+  };
+  const footL=angle(p[idx.left_heel],p[idx.left_foot_index]),footR=angle(p[idx.right_heel],p[idx.right_foot_index]);
+  const pelvisYaw=Math.atan2(RH0.y-LH0.y,RH0.x-LH0.x)*180/Math.PI;
+  const wristMid=mid(p[idx.left_wrist],p[idx.right_wrist]);
+  const shoulderMidP=mid(p[idx.left_shoulder],p[idx.right_shoulder]);
+  const shoulderBack=0;
+  const handHeight=(shoulderMidP.y-wristMid.y)*4;
+  const kneeGap=Math.abs(p[idx.left_knee].x-p[idx.right_knee].x);
+  const ankleGap=Math.abs(p[idx.left_ankle].x-p[idx.right_ankle].x);
+  const legsCross=(kneeGap-ankleGap)*6;
+  const kneeFlex=(360-(angles.kneeL+angles.kneeR))/2;
+  const legsRelax=clamp((ankleGap*1.5+kneeFlex/90)*35-35,-100,100);
 
- const angles={
-  elbowL:jointAngle(p[idx.left_shoulder],p[idx.left_elbow],p[idx.left_wrist]),
-  elbowR:jointAngle(p[idx.right_shoulder],p[idx.right_elbow],p[idx.right_wrist]),
-  shoulderL:jointAngle(p[idx.left_elbow],p[idx.left_shoulder],p[idx.left_hip]),
-  shoulderR:jointAngle(p[idx.right_elbow],p[idx.right_shoulder],p[idx.right_hip]),
-  kneeL:jointAngle(p[idx.left_hip],p[idx.left_knee],p[idx.left_ankle]),
-  kneeR:jointAngle(p[idx.right_hip],p[idx.right_knee],p[idx.right_ankle]),
-  ankleL:jointAngle(p[idx.left_knee],p[idx.left_ankle],p[idx.left_foot_index]),
-  ankleR:jointAngle(p[idx.right_knee],p[idx.right_ankle],p[idx.right_foot_index])
- };
- const footL=angle(p[idx.left_heel],p[idx.left_foot_index]),footR=angle(p[idx.right_heel],p[idx.right_foot_index]);
- const pelvisYaw=Math.atan2(RH0.z-LH0.z,RH0.x-LH0.x)*180/Math.PI;
- const wristMid=mid(p[idx.left_wrist],p[idx.right_wrist]);
- const shoulderMidP=mid(p[idx.left_shoulder],p[idx.right_shoulder]);
- const shoulderBack=(shoulderMidP.z-hip.z)*4;
- const handHeight=(shoulderMidP.y-wristMid.y)*4;
- const kneeGap=Math.abs(p[idx.left_knee].x-p[idx.right_knee].x);
- const ankleGap=Math.abs(p[idx.left_ankle].x-p[idx.right_ankle].x);
- const legsCross=(kneeGap-ankleGap)*6;
- const kneeFlex=(360-(angles.kneeL+angles.kneeR))/2;
- const legsRelax=clamp((ankleGap*1.5+kneeFlex/90)*35-35,-100,100);
-
- return {
-  p, image:imageK,
-  confidence:avgPresence(imageK),
-  head:{x:p[idx.nose]?.x||0,y:p[idx.nose]?.y||0,z:p[idx.nose]?.z||0},
-  shoulderAngle:angle(p[idx.left_shoulder],p[idx.right_shoulder]),
-  torsoAngle:angle(hip,sh),
-  torsoLean:Math.abs(sh.x),
-  torsoDepth:Math.abs(sh.z),
-  shoulderWidth:S('left_shoulder','right_shoulder'),
-  pelvisWidth:S('left_hip','right_hip'),
-  arms:{
-   L:S('left_shoulder','left_wrist'),R:S('right_shoulder','right_wrist'),
-   upperL:S('left_shoulder','left_elbow'),upperR:S('right_shoulder','right_elbow'),
-   foreL:S('left_elbow','left_wrist'),foreR:S('right_elbow','right_wrist')
-  },
-  hands:{
-   L:S('left_wrist','left_index'),R:S('right_wrist','right_index'),
-   spanL:S('left_pinky','left_index'),spanR:S('right_pinky','right_index'),
-   toTorsoL:S('left_wrist','left_hip'),toTorsoR:S('right_wrist','right_hip')
-  },
-  legs:{L:S('left_hip','left_ankle'),R:S('right_hip','right_ankle')},
-  feet:{L:S('left_heel','left_foot_index'),R:S('right_heel','right_foot_index'),angleL:footL,angleR:footR},
-  yaw:yaw*180/Math.PI,back:bf,
-  pelvisYaw,handHeight,shoulderBack,legsCross,legsRelax,
-  zvis:{head:zva([0,2,5,7,8]),shoulders:zva([11,12]),arms:zva([11,12,13,14,15,16]),hands:zva([15,16,19,20]),torso:zva([11,12,23,24]),legs:zva([23,24,25,26,27,28]),feet:zva([27,28,29,30,31,32])},
-  asym:Math.abs(S('left_shoulder','left_wrist')-S('right_shoulder','right_wrist')),
-  center:{x:hip.x,y:hip.y,z:hip.z},
-  angles
- };
+  return {
+    p,image:imageK,confidence:avgPresence(imageK),
+    head:{x:p[idx.nose]?.x||0,y:p[idx.nose]?.y||0,z:0},
+    shoulderAngle:angle(p[idx.left_shoulder],p[idx.right_shoulder]),
+    torsoAngle:angle(hip,sh),
+    torsoLean:Math.abs(sh.x),torsoDepth:0,
+    shoulderWidth:S('left_shoulder','right_shoulder'),pelvisWidth:S('left_hip','right_hip'),
+    arms:{
+      L:S('left_shoulder','left_wrist'),R:S('right_shoulder','right_wrist'),
+      upperL:S('left_shoulder','left_elbow'),upperR:S('right_shoulder','right_elbow'),
+      foreL:S('left_elbow','left_wrist'),foreR:S('right_elbow','right_wrist')
+    },
+    hands:{
+      L:S('left_wrist','left_index'),R:S('right_wrist','right_index'),
+      spanL:S('left_pinky','left_index'),spanR:S('right_pinky','right_index'),
+      toTorsoL:S('left_wrist','left_hip'),toTorsoR:S('right_wrist','right_hip')
+    },
+    legs:{L:S('left_hip','left_ankle'),R:S('right_hip','right_ankle')},
+    feet:{L:S('left_heel','left_foot_index'),R:S('right_heel','right_foot_index'),angleL:footL,angleR:footR},
+    yaw,back:bf,pelvisYaw,handHeight,shoulderBack,legsCross,legsRelax,
+    zvis:{head:zva([0,2,5,7,8]),shoulders:zva([11,12]),arms:zva([11,12,13,14,15,16]),hands:zva([15,16,19,20]),torso:zva([11,12,23,24]),legs:zva([23,24,25,26,27,28]),feet:zva([27,28,29,30,31,32])},
+    asym:Math.abs(S('left_shoulder','left_wrist')-S('right_shoulder','right_wrist')),
+    center:{x:hip.x,y:hip.y,z:0},angles
+  };
 }
 
 function postureVector(f){
@@ -1217,7 +1272,7 @@ function changedDetails(f){
  return items.length?items.map(x=>'<div class="detail"><b>'+x[0]+'</b><span>'+x[2]+' · '+(x[1]>=0?'+':'')+Math.round(x[1])+'°</span></div>').join(''):'<div class="small">Aucune variation angulaire ≥ 6° parmi les mesures principales.</div>';
 }
 function gAvg(z,rel){let a=0,b=0;ZN.forEach(n=>{a+=z[n];b+=rel?rel[n]:1});return b>.01?clamp(a/b):0}
-function viewText(f){const a=Math.abs(f.yaw||0);let t=(f.back?'de dos · ':'')+'vue '+Math.round(a)+'°'+(a>60?' ⚠ quasi de profil, fiabilité réduite':a>25?' (3/4)':' (face)');if(baseline&&baseline.yaw!=null&&Math.abs(f.yaw-baseline.yaw)>40)t+=' ⚠ angle très différent de la référence';if(baseline&&baseline.back!=null&&baseline.back!==!!f.back)t+=' ⚠ référence faite '+(baseline.back?'de dos':'de face')+' : en refaire une';if(baseline&&baseline.swap!=null&&baseline.swap!==swapLR)t+=' ⚠ G/D différent de la référence';t+=faceDet?(faceFront===true?' · visage ✓':faceFront===false?' · visage non détecté':' · visage ?'):'';return t}
+function viewText(f){const a=Math.abs(f.yaw||0);let t=(f.back?'de dos · ':'')+'vue '+Math.round(a)+'°'+(a>60?' ⚠ quasi de profil, fiabilité réduite':a>25?' (3/4)':' (face)');if(baseline&&baseline.yaw!=null&&Math.abs(f.yaw-baseline.yaw)>40)t+=' ⚠ angle très différent de la référence';if(baseline&&baseline.back!=null&&baseline.back!==!!f.back)t+=' ⚠ référence faite '+(baseline.back?'de dos':'de face')+' : en refaire une';if(baseline&&baseline.swap!=null&&baseline.swap!==swapLR)t+=' ⚠ G/D différent de la référence';return t}
 function smoothDeviation(d){
  const alpha=d.score>=55?.46:.30;
  const z={};
@@ -1285,7 +1340,7 @@ function updateUI(d,f){
  const it=interpret(d.z);
  document.getElementById('pattern').innerHTML='<b>'+it.pattern+'</b><br><span class="small">'+(ps.changed?'⚡ Nouveau pattern après '+Math.round((performance.now()-patternState.currentSince)/1000)+' s. ':'')+'Description biomécanique, pas lecture d’une émotion.</span>';
  document.getElementById('hypotheses').innerHTML=it.hyps+'<div class="note" style="margin-top:6px">L’app décrit les changements ; le synergologue contextualise.</div>';
- document.getElementById('landmarkDetails').innerHTML=changedDetails(f)+'<div class="small" style="margin-top:8px">33 landmarks · 3D · les valeurs sont comparées à la référence active.</div>';
+ document.getElementById('landmarkDetails').innerHTML=changedDetails(f)+'<div class="small" style="margin-top:8px">17 keypoints MoveNet · géométrie 2D normalisée · les valeurs sont comparées à la référence active.</div>';
  const max=Object.entries(d.z).filter(([n])=>n!=='global').sort((a,b)=>b[1]-a[1])[0];
  document.getElementById('floatZone').innerHTML=max&&max[1]>30?'<strong>'+ZL[max[0]]+' · '+Math.round(max[1])+'/100</strong><br>'+(d.position>d.motion?'Écart de position dominant.':'Écart de dynamique dominant.'):'<strong>Tout est vert</strong><br>Pas de rupture dominante détectée.';
  document.getElementById('floatReading').innerHTML='<div class="title">'+(ps.changed?'⚡ Nouveau pattern : ':'')+it.pattern+'</div><b>Position '+d.position+' · mouvement '+d.motion+'</b><br>'+it.hyps;
@@ -1353,8 +1408,8 @@ function validateReference(){
  baseline=candidate;referenceState='active';candidate=null;resetRealtimeSmoothing();patternState.stableSig=[];patternState.candidateSig=null;patternState.current='Stable';patternState.currentSince=performance.now();patternState.lastTransition=0;
  const mr=document.getElementById('mobileRefState');if(mr){mr.textContent='● Référence active';mr.style.background='rgba(22,92,59,.92)';}
  document.getElementById('validateRef').style.display='none';
- localStorage.setItem('nv_baseline_v5_mediapipe_heavy',JSON.stringify(baseline));
- showReferenceQuality();setStatus('Référence active — MediaPipe Heavy',true);
+ localStorage.setItem('nv_baseline_v6_movenet',JSON.stringify(baseline));
+ showReferenceQuality();setStatus('Référence active — MoveNet',true);
 }
 function adaptiveUpdate(d,f){
  if(!baseline||d.score>15)return;
@@ -1364,7 +1419,7 @@ function adaptiveUpdate(d,f){
 }
 function loadBaseline(){
  try{
-  const b=JSON.parse(localStorage.getItem('nv_baseline_v5_mediapipe_heavy'));
+  const b=JSON.parse(localStorage.getItem('nv_baseline_v6_movenet'));
   if(b?.med&&b?.prototypes){
   b.headY ??= b.med[1] ?? 0;
   b.torsoZ ??= b.med[6] ?? null;
@@ -1373,78 +1428,68 @@ function loadBaseline(){
 }
  }catch(e){}
 }
+
 async function initModel(){
- setStatus('Chargement du modèle MediaPipe Heavy…',true);
- const vision=await FilesetResolver.forVisionTasks(`https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@${mpVer}/wasm`);
- const opts={
-  baseOptions:{
-   modelAssetPath:isMobile?'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task':'https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_heavy/float16/1/pose_landmarker_heavy.task',
-   delegate:'GPU'
-  },
-  runningMode:'VIDEO',
-  numPoses:4,
-  minPoseDetectionConfidence:.55,
-  minPosePresenceConfidence:.55,
-  minTrackingConfidence:.55
- };
- try{
-  poseLandmarker=await PoseLandmarker.createFromOptions(vision,opts);
- }catch(e){
-  console.warn('GPU indisponible, fallback CPU',e);
-  delete opts.baseOptions.delegate;
-  poseLandmarker=await PoseLandmarker.createFromOptions(vision,opts);
- }
- const FACE_URL='https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_short_range/float16/1/blaze_face_short_range.tflite';
- try{faceDet=await FaceDetector.createFromOptions(vision,{baseOptions:{modelAssetPath:FACE_URL,delegate:'GPU'},runningMode:'VIDEO',minDetectionConfidence:.5})}
- catch(e){try{faceDet=await FaceDetector.createFromOptions(vision,{baseOptions:{modelAssetPath:FACE_URL},runningMode:'VIDEO',minDetectionConfidence:.5})}
-  catch(e2){console.warn('détection de visage indisponible : repli sur les épaules',e2);faceDet=null}}
- modelReady=true;
- setStatus('Modèle prêt ('+(isMobile?'Full':'Heavy')+')',true);
+  setStatus('Chargement de MoveNet…',true);
+  try{
+    if(!window.ml5)throw new Error('ml5.js non chargé');
+    bodyPose=await ml5.bodyPose('MoveNet',{flipped:false});
+    bodyPose.detectStart(video,gotPoses);
+    modelReady=true;
+    setStatus('MoveNet prêt',true);
+  }catch(e){
+    console.error('MoveNet init error',e);
+    modelReady=false;
+    setStatus('Impossible de charger MoveNet');
+    throw e;
+  }
+}
+function gotPoses(results){
+  poseResults=Array.isArray(results)?results:[];
 }
 async function processFrame(ts){
- if(!running||paused||!modelReady||!poseLandmarker||inferenceBusy)return;
- if(video.readyState<2){raf=requestAnimationFrame(processFrame);return}
- if(ts-lastInferenceTs<38){raf=requestAnimationFrame(processFrame);return}
- lastInferenceTs=ts;
- if(video.currentTime===lastVideoTime){raf=requestAnimationFrame(processFrame);return}
- lastVideoTime=video.currentTime;
- inferenceBusy=true;
- try{
-  const result=poseLandmarker.detectForVideo(video,Math.max(1,Math.round(performance.now())));
-  const sel=pickTarget(result);let k=sel?.k,wk=sel?.wk;if(swapLR){k=swapLM(k);wk=swapLM(wk)}if(k)updateFace(k);
-  fpsN++;if(ts-fpsT>1000){const fe=document.getElementById('fps');if(fe)fe.textContent=fpsN+' FPS';fpsN=0;fpsT=ts}
-  if(k){
-   const f=feature(k,wk);
-   if(f){
-    const dt=lastFrameTime?(ts-lastFrameTime)/1000:0;
-    const mv=motionVector(f,dt);lastFrameTime=ts;
-    {const vt=viewText(f)+(persons.length>1?' · '+persons.length+' personnes, touchez la cible sur l’aperçu':'');document.getElementById('tracking').textContent='Tracking : '+Math.round(f.confidence*100)+'% · '+vt;const vi=document.getElementById('viewInfo');if(vi)vi.textContent='Vue : '+vt}
-    if(calibrating){
-     calib.push({p:postureVector(f),m:mv,conf:f.confidence,torsoSigned:f.center.z,yaw:f.yaw,back:f.back?1:0,pelvisYaw:f.pelvisYaw??0,handHeight:f.handHeight??0,shoulderBack:f.shoulderBack??0,legsCross:f.legsCross??0,legsRelax:f.legsRelax??0});
-     const rs=document.getElementById('refSamples');if(rs)rs.textContent=calib.length;
-     const rc=document.getElementById('refConfidence');if(rc)rc.textContent=Math.round(f.confidence*100)+'%';
-     const state=document.getElementById('refDataState');if(state)state.textContent='COLLECTE';
-     const elapsed=Date.now()-calibStart;
-     setStatus('Construction de référence '+Math.min(100,Math.round(elapsed/120))+'%',true);document.getElementById('mobilePattern').textContent='Calibration — ne pas interpréter';
-     drawSkeleton(k,{z:{head:0,shoulders:0,arms:0,hands:0,torso:0,legs:0,feet:0}});
-    }else if(baseline){
-     const d=smoothDeviation(deviation(f,mv));drawSkeleton(k,d);drawMini(k,d);try{updateUI(d,f)}catch(err){console.warn('updateUI',err)}
-     if(!sessionStart)sessionStart=Date.now();
-     addTimelineSample(d,Date.now());addEvent(d);adaptiveUpdate(d,f);
+  if(!running||paused||!modelReady||inferenceBusy){raf=requestAnimationFrame(processFrame);return}
+  if(video.readyState<2){raf=requestAnimationFrame(processFrame);return}
+  if(ts-lastInferenceTs<38){raf=requestAnimationFrame(processFrame);return}
+  lastInferenceTs=ts;
+  inferenceBusy=true;
+  try{
+    const sel=pickTarget(poseResults);let k=sel?.k,wk=sel?.wk;
+    if(swapLR){k=swapLM(k);wk=swapLM(wk)}
+    fpsN++;if(ts-fpsT>1000){const fe=document.getElementById('fps');if(fe)fe.textContent=fpsN+' FPS analyse';fpsN=0;fpsT=ts}
+    if(k){
+      const f=feature(k,wk);
+      if(f){
+        const dt=lastFrameTime?(ts-lastFrameTime)/1000:0;
+        const mv=motionVector(f,dt);lastFrameTime=ts;
+        {const vt=viewText(f)+(persons.length>1?' · '+persons.length+' personnes, touchez la cible sur l’aperçu':'');document.getElementById('tracking').textContent='Tracking : '+Math.round(f.confidence*100)+'% · '+vt;const vi=document.getElementById('viewInfo');if(vi)vi.textContent='Vue : '+vt}
+        if(calibrating){
+          calib.push({p:postureVector(f),m:mv,conf:f.confidence,torsoSigned:0,yaw:f.yaw,back:0,pelvisYaw:f.pelvisYaw??0,handHeight:f.handHeight??0,shoulderBack:f.shoulderBack??0,legsCross:f.legsCross??0,legsRelax:f.legsRelax??0});
+          const rs=document.getElementById('refSamples');if(rs)rs.textContent=calib.length;
+          const rc=document.getElementById('refConfidence');if(rc)rc.textContent=Math.round(f.confidence*100)+'%';
+          const state=document.getElementById('refDataState');if(state)state.textContent='COLLECTE';
+          const elapsed=Date.now()-calibStart;
+          setStatus('Construction de référence '+Math.min(100,Math.round(elapsed/120))+'%',true);document.getElementById('mobilePattern').textContent='Calibration — ne pas interpréter';
+          drawSkeleton(k,{z:{head:0,shoulders:0,arms:0,hands:0,torso:0,legs:0,feet:0}});
+        }else if(baseline){
+          const d=smoothDeviation(deviation(f,mv));drawSkeleton(k,d);drawMini(k,d);try{updateUI(d,f)}catch(err){console.warn('updateUI',err)}
+          if(!sessionStart)sessionStart=Date.now();
+          addTimelineSample(d,Date.now());addEvent(d);adaptiveUpdate(d,f);
+        }else{
+          const z={head:0,shoulders:0,arms:0,hands:0,torso:0,legs:0,feet:0,global:0};
+          drawSkeleton(k,{z});drawMini(k,{z});updateLandmarks(f);updateDirectionalAxes(f);
+          document.getElementById('mobileScore').textContent='—';document.getElementById('mobilePattern').textContent='Construire puis valider la référence';
+        }
+        lastFeature=f;
+      }
     }else{
-     const z={head:0,shoulders:0,arms:0,hands:0,torso:0,legs:0,feet:0,global:0};
-     drawSkeleton(k,{z});drawMini(k,{z});updateLandmarks(f);updateDirectionalAxes(f);
-     document.getElementById('mobileScore').textContent='—';document.getElementById('mobilePattern').textContent='Construire puis valider la référence';
+      const lt=persons.length?'cible perdue — touchez-la sur l’aperçu pour la reprendre':'aucune personne détectée';document.getElementById('tracking').textContent='Tracking : '+lt;const vi=document.getElementById('viewInfo');if(vi)vi.textContent='Vue : '+lt;drawIdle()
     }
-    lastFeature=f;
-   }
-  }else{
-   {const lt=target&&persons.length?'cible perdue — touchez-la sur l’aperçu pour la reprendre':'aucune personne stable';document.getElementById('tracking').textContent='Tracking : '+lt;const vi=document.getElementById('viewInfo');if(vi)vi.textContent='Vue : '+lt;drawIdle()}
-  }
- }catch(e){console.warn('Pose frame error',e)}
- inferenceBusy=false;
- raf=requestAnimationFrame(processFrame);
+  }catch(e){console.warn('Pose frame error',e)}
+  inferenceBusy=false;
+  raf=requestAnimationFrame(processFrame);
 }
+
 function addEvent(d){
  const now=Date.now();if(now-lastEvent<1600||d.score<55)return;lastEvent=now;
  const z=Object.entries(d.z).filter(([n])=>n!=='global').sort((a,b)=>b[1]-a[1])[0];if(!z)return;
@@ -1457,15 +1502,20 @@ async function start(){
  if(stream){paused=false;running=true;setStatus(baseline?'Analyse des données en direct':'Source de données active — construire référence',true);raf=requestAnimationFrame(processFrame);return}
  try{
   stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:960},height:{ideal:540}},audio:false});
-  // MODE DONNÉES : le flux caméra est une source locale de frames pour MediaPipe.
+  // MODE DONNÉES : le flux caméra est une source locale de frames pour MoveNet.
   // Aucun flux n'est enregistré, exporté ou affiché à l'écran.
   video.muted=true; video.autoplay=true; video.playsInline=true; video.srcObject=stream;
+  if(phoneVideo){
+    phoneVideo.muted=true; phoneVideo.autoplay=true; phoneVideo.playsInline=true;
+    phoneVideo.srcObject=stream;
+  }
   await video.play();
+  if(phoneVideo) await phoneVideo.play().catch(()=>{});
   const privacy=document.getElementById('dataPrivacy');
   if(privacy)privacy.textContent='Flux local · aucune vidéo enregistrée';
-  if(!poseLandmarker)await initModel();
+  if(!bodyPose)await initModel();
   running=true;sessionStart=Date.now();patternState.stableSig=[];patternState.candidateSig=null;patternState.current='Stable';patternState.currentSince=performance.now();timelinePatternEvents.length=0;setStatus(baseline?'Analyse des données en direct':'Source de données active — construire référence',true);raf=requestAnimationFrame(processFrame);
- }catch(e){console.error(e);setStatus('Caméra/modèle impossible');alert('Autorisez la caméra et utilisez HTTPS (GitHub Pages convient). Si le modèle Heavy ne charge pas, vérifiez la connexion internet.')}
+ }catch(e){console.error(e);setStatus('Caméra/modèle impossible');alert('Autorisez la caméra et utilisez HTTPS (GitHub Pages convient). Si MoveNet ne charge pas, vérifiez la connexion internet.')}
 }
 function calibrate(){
  if(!running){alert('Démarrez d’abord la caméra.');return}
@@ -1484,7 +1534,7 @@ document.getElementById('pause').onclick=()=>{
 };
 document.getElementById('reset').onclick=()=>{
  target=null;baseline=null;candidate=null;timeline=[];timelinePatternEvents.length=0;resetRealtimeSmoothing();referenceState='none';patternState.stableSig=[];patternState.candidateSig=null;patternState.current='Stable';patternState.currentSince=performance.now();
- localStorage.removeItem('nv_baseline_v5_mediapipe_heavy');
+ localStorage.removeItem('nv_baseline_v6_movenet');
  document.getElementById('validateRef').style.display='none';
  document.getElementById('floatStatus').textContent='Référence requise';setStatus('Référence supprimée',false);drawTimeline()
 };
