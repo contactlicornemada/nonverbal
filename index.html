@@ -1,0 +1,1708 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CRM Licorne — Pilotage Commercial</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+<style>
+  :root{
+    --bg:#f3f4f0; --panel:#ffffff; --panel-2:#f8f9f6; --line:#dfe2da; --text:#191b17; --muted:#666f63;
+    --brand:#0e6f66; --brand-ink:#ffffff; --brand-soft:#e2f1ee;
+    --danger:#c5451f; --danger-soft:#fbe6df;
+    --brulant:#d1401f; --chaud:#e2872b; --tiede:#c9a227; --froid:#3b78c2;
+    --radius:12px; --radius-sm:8px;
+    --shadow:0 1px 2px rgba(20,25,20,.05), 0 8px 24px -12px rgba(20,25,20,.12);
+    color-scheme: light;
+  }
+  [data-theme="dark"]{
+    --bg:#12161a; --panel:#181e23; --panel-2:#1d2429; --line:#2a333a; --text:#e9edef; --muted:#93a0a6;
+    --brand:#22a397; --brand-ink:#06201d; --brand-soft:#12312d;
+    --danger:#e5684a; --danger-soft:#3a1f18;
+    --brulant:#e5684a; --chaud:#eba24a; --tiede:#d8b84a; --froid:#5c9be0;
+    color-scheme: dark;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:'Inter',ui-sans-serif,system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;}
+  h1,h2,h3,.brand,.kpi-value,.chart-title,nav .navlabel{font-family:'Space Grotesk',ui-sans-serif,sans-serif;}
+  .num{font-variant-numeric: tabular-nums;}
+  button{font-family:inherit;cursor:pointer;}
+  input,select,textarea{font-family:inherit;font-size:14px;}
+  a{color:inherit}
+
+  #app{display:flex;min-height:100vh;}
+
+  /* ---------- Sidebar ---------- */
+  #sidebar{width:220px;flex:none;background:var(--panel);border-right:1px solid var(--line);
+    display:flex;flex-direction:column;padding:20px 14px;gap:22px;position:sticky;top:0;height:100vh;}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:700;font-size:17px;padding:0 8px;}
+  .brand-mark{width:30px;height:30px;border-radius:99px;background:linear-gradient(135deg,var(--brulant),var(--chaud) 45%,var(--tiede) 75%,var(--froid));
+    flex:none;box-shadow:inset 0 0 0 2px rgba(255,255,255,.25);}
+  nav{display:flex;flex-direction:column;gap:2px;}
+  nav .navlabel{font-size:11px;letter-spacing:.02em;color:var(--muted);margin:14px 8px 4px;font-weight:600;}
+  nav button.navitem{all:unset;display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:var(--radius-sm);
+    color:var(--muted);font-size:14px;font-weight:500;}
+  nav button.navitem:hover{background:var(--panel-2);color:var(--text);}
+  nav button.navitem.active{background:var(--brand-soft);color:var(--brand);font-weight:600;}
+  nav button.navitem .ic{width:18px;text-align:center;font-size:15px;}
+  .sidebar-foot{margin-top:auto;font-size:12px;color:var(--muted);padding:0 8px;line-height:1.5;}
+  #connDot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--muted);margin-right:6px;}
+  #connDot.ok{background:#2fa86b;}
+  #connDot.err{background:var(--danger);}
+
+  /* ---------- Topbar ---------- */
+  #main{flex:1;min-width:0;}
+  #topbar{display:flex;align-items:center;gap:14px;padding:14px 24px;border-bottom:1px solid var(--line);
+    background:var(--bg);position:sticky;top:0;z-index:5;}
+  #topbar h1{font-size:19px;margin:0;font-weight:600;}
+  .searchbox{flex:1;max-width:360px;display:flex;align-items:center;gap:8px;background:var(--panel);
+    border:1px solid var(--line);border-radius:999px;padding:8px 14px;color:var(--muted);}
+  .searchbox input{border:0;outline:0;background:transparent;color:var(--text);width:100%;}
+  .topbar-actions{display:flex;align-items:center;gap:8px;margin-left:auto;}
+  .iconbtn{border:1px solid var(--line);background:var(--panel);border-radius:999px;width:36px;height:36px;
+    display:flex;align-items:center;justify-content:center;font-size:16px;color:var(--text);}
+  .iconbtn:hover{background:var(--panel-2);}
+  .btn{border:1px solid var(--line);background:var(--panel);color:var(--text);border-radius:999px;
+    padding:9px 16px;font-size:13.5px;font-weight:600;display:inline-flex;align-items:center;gap:6px;}
+  .btn:hover{background:var(--panel-2);}
+  .btn.primary{background:var(--brand);border-color:var(--brand);color:var(--brand-ink);}
+  .btn.primary:hover{filter:brightness(1.06);}
+  .btn.danger{background:var(--danger);border-color:var(--danger);color:#fff;}
+  .btn.ghost{background:transparent;border-color:transparent;}
+  .btn.sm{padding:6px 11px;font-size:12.5px;}
+
+  #view{padding:22px 24px 60px;max-width:1400px;}
+
+  /* ---------- Cards / KPIs ---------- */
+  .grid{display:grid;gap:16px;}
+  .grid.cols-4{grid-template-columns:repeat(4,1fr);}
+  .grid.cols-3{grid-template-columns:repeat(3,1fr);}
+  .grid.cols-2{grid-template-columns:repeat(2,1fr);}
+  @media(max-width:1100px){.grid.cols-4{grid-template-columns:repeat(2,1fr);} .grid.cols-3{grid-template-columns:repeat(2,1fr);}}
+  @media(max-width:680px){.grid.cols-4,.grid.cols-3,.grid.cols-2{grid-template-columns:1fr;}}
+
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:18px;}
+  .kpi-label{font-size:12.5px;color:var(--muted);font-weight:600;letter-spacing:.01em;}
+  .kpi-value{font-size:28px;font-weight:700;margin-top:6px;}
+  .kpi-sub{font-size:12px;color:var(--muted);margin-top:4px;}
+  .section-title{display:flex;align-items:center;justify-content:space-between;margin:26px 0 12px;}
+  .section-title h2{font-size:15px;margin:0;font-weight:600;color:var(--text);}
+  .section-title .hint{font-size:12px;color:var(--muted);}
+  .chart-title{font-size:13.5px;font-weight:600;margin:0 0 10px;}
+  .period-toggle{display:flex;gap:4px;background:var(--panel-2);border-radius:999px;padding:3px;}
+  .period-toggle button{all:unset;padding:5px 12px;border-radius:999px;font-size:12.5px;font-weight:600;color:var(--muted);}
+  .period-toggle button.active{background:var(--panel);color:var(--text);box-shadow:var(--shadow);}
+
+  /* ---------- Temperature badges ---------- */
+  .temp{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:600;padding:4px 9px;border-radius:999px;white-space:nowrap;}
+  .temp .dot{width:7px;height:7px;border-radius:50%;}
+  .temp.brulant{background:color-mix(in srgb, var(--brulant) 16%, transparent);color:var(--brulant);}
+  .temp.brulant .dot{background:var(--brulant);}
+  .temp.chaud{background:color-mix(in srgb, var(--chaud) 18%, transparent);color:var(--chaud);}
+  .temp.chaud .dot{background:var(--chaud);}
+  .temp.tiede{background:color-mix(in srgb, var(--tiede) 20%, transparent);color:var(--tiede);}
+  .temp.tiede .dot{background:var(--tiede);}
+  .temp.froid{background:color-mix(in srgb, var(--froid) 16%, transparent);color:var(--froid);}
+  .temp.froid .dot{background:var(--froid);}
+
+  /* ---------- Table / list ---------- */
+  .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
+  .chip{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:6px 12px;font-size:12.5px;color:var(--muted);font-weight:600;}
+  select.chip, .toolbar select{border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:7px 12px;font-size:12.5px;color:var(--text);font-weight:600;}
+  .table-wrap{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);overflow-x:auto;overflow-y:hidden;}
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  thead th{text-align:left;font-size:11.5px;text-transform:none;color:var(--muted);font-weight:600;
+    padding:11px 14px;border-bottom:1px solid var(--line);background:var(--panel-2);white-space:nowrap;}
+  tbody td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:middle;white-space:nowrap;max-width:260px;overflow:hidden;text-overflow:ellipsis;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:var(--panel-2);}
+  tbody tr{cursor:pointer;}
+  .name-cell{font-weight:600;}
+  .sub{color:var(--muted);font-size:12px;}
+  .row-actions{display:flex;gap:6px;justify-content:flex-end;white-space:nowrap;}
+  .badge-soft{font-size:11.5px;padding:3px 8px;border-radius:6px;background:var(--panel-2);color:var(--muted);border:1px solid var(--line);}
+  .badge-warn{background:var(--danger-soft);color:var(--danger);border-color:transparent;}
+  .empty{padding:50px 20px;text-align:center;color:var(--muted);}
+  .empty .big{font-size:32px;margin-bottom:8px;}
+  th.sticky-col, td.sticky-col{position:sticky;left:0;background:var(--panel);z-index:2;}
+  thead th.sticky-col{background:var(--panel-2);z-index:3;}
+  tbody tr:hover td.sticky-col{background:var(--panel-2);}
+
+  /* ---------- Column chooser ---------- */
+  .col-chooser{position:relative;}
+  .col-menu{position:absolute;top:calc(100% + 6px);left:0;background:var(--panel);border:1px solid var(--line);
+    border-radius:var(--radius-sm);box-shadow:var(--shadow);padding:8px;z-index:30;min-width:230px;max-height:320px;
+    overflow:auto;display:flex;flex-direction:column;gap:1px;}
+  .col-menu.hidden{display:none;}
+  .col-menu-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;font-size:13px;cursor:pointer;}
+  .col-menu-item:hover{background:var(--panel-2);}
+  .col-menu-item input{cursor:pointer;}
+
+  /* ---------- Detail view & Comments ---------- */
+  .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px 18px;}
+  .detail-item{display:flex;flex-direction:column;gap:4px;}
+  .detail-label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;}
+  .detail-value{font-size:14px;line-height:1.5;}
+  @media(max-width:560px){.detail-grid{grid-template-columns:1fr;}}
+
+  .comments-section{margin-top:20px;border-top:1px solid var(--line);padding-top:16px;}
+  .comments-list{display:flex;flex-direction:column;gap:10px;margin-bottom:14px;max-height:220px;overflow-y:auto;}
+  .comment-box{background:var(--panel-2);border:1px solid var(--line);border-radius:var(--radius-sm);padding:10px 12px;font-size:13px;}
+  .comment-head{display:flex;justify-content:space-between;color:var(--muted);font-size:11px;font-weight:600;margin-bottom:4px;}
+  .comment-body{white-space:pre-wrap;line-height:1.4;}
+  .add-comment-form{display:flex;gap:8px;align-items:flex-end;}
+  .add-comment-form textarea{flex:1;min-height:50px;border:1px solid var(--line);border-radius:var(--radius-sm);padding:8px 10px;background:var(--panel-2);color:var(--text);outline:0;}
+
+  /* ---------- Modal ---------- */
+  .overlay{position:fixed;inset:0;background:rgba(10,12,10,.45);display:flex;align-items:flex-start;
+    justify-content:center;padding:40px 16px;overflow:auto;z-index:50;backdrop-filter:blur(2px);}
+  .overlay.hidden{display:none;}
+  .modal{background:var(--panel);border-radius:16px;width:100%;max-width:720px;box-shadow:var(--shadow);
+    border:1px solid var(--line);}
+  .modal.narrow{max-width:480px;}
+  .modal-head{display:flex;align-items:center;justify-content:space-between;padding:18px 22px;border-bottom:1px solid var(--line);}
+  .modal-head h3{margin:0;font-size:16px;}
+  .modal-body{padding:20px 22px;max-height:70vh;overflow:auto;}
+  .modal-foot{display:flex;justify-content:flex-end;gap:8px;padding:16px 22px;border-top:1px solid var(--line);}
+  .field{display:flex;flex-direction:column;gap:6px;margin-bottom:14px;}
+  .field label{font-size:12px;font-weight:600;color:var(--muted);}
+  .field input, .field select, .field textarea{border:1px solid var(--line);border-radius:var(--radius-sm);
+    padding:9px 11px;background:var(--panel-2);color:var(--text);width:100%;outline:0;}
+  .field input:focus, .field select:focus, .field textarea:focus{border-color:var(--brand);}
+  .field textarea{resize:vertical;min-height:64px;}
+  .field.grow textarea{min-height:130px;}
+  .field-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;}
+  @media(max-width:560px){.field-row{grid-template-columns:1fr;}}
+  .fieldset-title{font-size:11.5px;font-weight:700;letter-spacing:.03em;color:var(--brand);margin:18px 0 10px;text-transform:uppercase;}
+  .fieldset-title:first-child{margin-top:0;}
+
+  /* ---------- Toast ---------- */
+  #toastHost{position:fixed;bottom:20px;right:20px;display:flex;flex-direction:column;gap:8px;z-index:100;}
+  .toast{background:var(--text);color:var(--bg);padding:11px 16px;border-radius:10px;font-size:13px;font-weight:500;
+    box-shadow:var(--shadow);opacity:0;transform:translateY(6px);transition:.2s;}
+  .toast.show{opacity:1;transform:translateY(0);}
+
+  /* ---------- Settings ---------- */
+  .kv{display:flex;flex-direction:column;gap:4px;font-size:13px;margin-bottom:12px;}
+  .kv b{font-size:12px;color:var(--muted);font-weight:600;}
+  code.inline{background:var(--panel-2);border:1px solid var(--line);border-radius:6px;padding:2px 6px;font-size:12px;}
+
+  ::-webkit-scrollbar{width:10px;height:10px;}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:6px;}
+
+  /* ---------- Focus picker ---------- */
+  .focus-picker-list{display:flex;flex-direction:column;gap:2px;max-height:50vh;overflow:auto;}
+  .focus-picker-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 10px;
+    border-radius:8px;cursor:pointer;border:1px solid transparent;}
+  .focus-picker-item:hover{background:var(--panel-2);}
+  .focus-picker-item.in-focus{border-color:var(--brand);background:var(--brand-soft);}
+  .focus-picker-item .fp-name{font-weight:600;font-size:13.5px;}
+  .focus-picker-item .fp-sub{font-size:12px;color:var(--muted);}
+  .focus-picker-item .fp-check{font-size:12.5px;font-weight:700;color:var(--brand);white-space:nowrap;}
+
+  /* ---------- Mobile Drawer ---------- */
+  #hamburgerBtn{display:none;}
+  #sidebarBackdrop{display:none;}
+  .sidebar-close{display:none;}
+
+  @media(max-width:860px){
+    #sidebar{position:fixed;top:0;left:0;height:100vh;z-index:60;width:250px;
+      transform:translateX(-100%);transition:transform .22s ease;}
+    #sidebar.open{transform:translateX(0);}
+    #sidebarBackdrop{display:block;position:fixed;inset:0;background:rgba(10,12,10,.45);z-index:55;
+      opacity:0;pointer-events:none;transition:opacity .2s ease;}
+    #sidebarBackdrop.show{opacity:1;pointer-events:auto;}
+    .sidebar-close{display:flex;margin-left:auto;}
+    #hamburgerBtn{display:flex;}
+    #main{width:100%;}
+    #topbar h1{display:none;}
+    #topbar{padding:10px 14px;gap:8px;}
+    #view{padding:14px 12px 56px;}
+    .add-label{display:none;}
+    #addBtn{padding:9px 12px;}
+    .grid.cols-4{grid-template-columns:repeat(2,1fr);}
+  }
+  @media(max-width:640px){
+    #topbar{flex-wrap:wrap;}
+    .searchbox{order:3;flex-basis:100%;max-width:100%;}
+    .modal{max-width:100%;width:100%;height:100%;max-height:100%;border-radius:0;
+      display:flex;flex-direction:column;margin:0;}
+    .modal.narrow{max-width:100%;}
+    .overlay{padding:0;align-items:stretch;}
+    .modal-body{flex:1;max-height:none;}
+    .grid.cols-4,.grid.cols-3,.grid.cols-2{grid-template-columns:1fr;}
+    .kpi-value{font-size:24px;}
+    .section-title{flex-direction:column;align-items:flex-start;gap:4px;}
+    .card{padding:14px;}
+    #view{padding:12px 10px 56px;}
+    .toolbar{gap:8px;}
+    .field-row{grid-template-columns:1fr;}
+    .detail-grid{grid-template-columns:1fr;}
+  }
+  @media(max-width:420px){
+    .kpi-value{font-size:21px;}
+    thead th, tbody td{padding:9px 10px;font-size:12.5px;}
+  }
+
+  /* ---------- Login gate ---------- */
+  #loginScreen{position:fixed;inset:0;z-index:200;background:var(--bg);display:flex;align-items:center;justify-content:center;padding:20px;}
+  .login-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow);padding:32px 28px;width:100%;max-width:360px;}
+  .login-card .brand{justify-content:center;margin-bottom:22px;font-size:19px;}
+  .login-card h2{margin:0 0 6px;font-size:17px;text-align:center;}
+  .login-card p.sub-login{text-align:center;color:var(--muted);font-size:13px;margin:0 0 22px;}
+  .login-error{color:var(--danger);font-size:12.5px;margin:-6px 0 14px;min-height:16px;}
+  .login-card .btn{width:100%;justify-content:center;}
+  #app.locked{display:none;}
+
+/* ================================================================
+   LICORNE HUD / FUTURISTIC INTERFACE OVERRIDE
+   Inspired by the supplied cyan/navy futuristic dashboard reference.
+   ================================================================ */
+:root{
+  --bg:#031a32; --panel:rgba(3,37,62,.82); --panel-2:rgba(4,49,76,.72);
+  --line:rgba(21,220,236,.34); --text:#d9fbff; --muted:#6da8b8;
+  --brand:#11dce5; --brand-ink:#031a32; --brand-soft:rgba(17,220,229,.12);
+  --danger:#ff6f87; --danger-soft:rgba(255,111,135,.12);
+  --brulant:#ff7f96; --chaud:#ffb75c; --tiede:#d7d76a; --froid:#3b9fe8;
+  --radius:2px; --radius-sm:2px;
+  --shadow:0 0 0 1px rgba(17,220,229,.05), 0 0 28px rgba(0,202,230,.08);
+  color-scheme:dark;
+}
+html,body{background:#031a32;color:var(--text);min-height:100%;}
+body{
+  background-image:
+    linear-gradient(rgba(9,88,118,.08) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(9,88,118,.08) 1px,transparent 1px),
+    radial-gradient(circle at 70% 35%,rgba(0,218,235,.09),transparent 30%),
+    radial-gradient(circle at 20% 75%,rgba(255,101,144,.05),transparent 25%);
+  background-size:32px 32px,32px 32px,100% 100%,100% 100%;
+  overflow-x:hidden;
+}
+body:before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;background:linear-gradient(90deg,transparent 49.8%,rgba(26,231,239,.045) 50%,transparent 50.2%);}
+#particleCanvas{position:fixed;inset:0;width:100%;height:100%;z-index:1;pointer-events:none;opacity:.9;}
+#app,#loginScreen{position:relative;z-index:2;}
+#app{background:transparent;}
+#sidebar{width:230px;background:rgba(2,27,49,.92);border-right:1px solid rgba(22,219,235,.32);padding:18px 12px;gap:20px;box-shadow:12px 0 40px rgba(0,0,0,.18);}
+#sidebar:after{content:"";position:absolute;right:-1px;top:38px;width:1px;height:95px;background:linear-gradient(transparent,var(--brand),transparent);}
+.brand{letter-spacing:.12em;text-transform:uppercase;color:#a9f8ff;text-shadow:0 0 12px rgba(17,220,229,.45);font-size:14px;}
+.brand-mark{width:28px;height:28px;border-radius:2px;background:transparent;border:1px solid #16dce8;box-shadow:inset 0 0 0 3px rgba(17,220,229,.08),0 0 15px rgba(17,220,229,.35);position:relative;}
+.brand-mark:before,.brand-mark:after{content:"";position:absolute;background:#ff7c9b;box-shadow:0 0 9px #ff7c9b;}
+.brand-mark:before{width:5px;height:5px;left:5px;top:5px}.brand-mark:after{width:5px;height:5px;right:5px;bottom:5px}
+nav{gap:3px} nav .navlabel{color:#4d91a4;text-transform:uppercase;letter-spacing:.16em;margin:13px 8px 5px;font-size:9px}
+nav button.navitem{border-radius:0;border-left:2px solid transparent;color:#6ca8b7;letter-spacing:.03em;padding:9px 10px;position:relative;overflow:hidden}
+nav button.navitem:hover{background:rgba(17,220,229,.06);color:#d8fbff;border-left-color:rgba(17,220,229,.45)}
+nav button.navitem.active{background:linear-gradient(90deg,rgba(17,220,229,.13),transparent);color:#1ee8ee;border-left-color:#1ee8ee;box-shadow:inset 0 0 18px rgba(17,220,229,.04)}
+nav button.navitem .ic{color:#22dce5;text-shadow:0 0 8px rgba(34,220,229,.5)}
+.sidebar-foot{color:#4f8999}.sidebar-foot:before{content:"SYSTEM STATUS //";display:block;color:#356f81;font-size:8px;letter-spacing:.14em;margin-bottom:7px}
+#main{background:transparent}
+#topbar{background:rgba(2,25,45,.82);border-bottom:1px solid rgba(20,216,234,.27);backdrop-filter:blur(12px);padding:12px 22px;}
+#topbar h1{color:#d8fbff;letter-spacing:.06em;text-transform:uppercase;font-size:17px}
+.searchbox{background:rgba(4,46,71,.65);border:1px solid rgba(17,220,229,.3);border-radius:2px;box-shadow:inset 0 0 14px rgba(0,209,230,.04);}
+.searchbox input{color:#c9f7fb}.searchbox span{color:#15dce7}
+.iconbtn,.btn{background:rgba(4,47,72,.72);border:1px solid rgba(18,218,234,.32);border-radius:2px;color:#bcecf1;box-shadow:inset 0 0 12px rgba(10,206,225,.035)}
+.iconbtn:hover,.btn:hover{background:rgba(9,69,96,.8);border-color:rgba(18,218,234,.6)}
+.btn.primary{background:linear-gradient(90deg,#0b8e9e,#10cbd1);border-color:#16e0e5;color:#021b31;box-shadow:0 0 18px rgba(14,214,227,.2)}
+.btn.danger{background:#7f2f49;border-color:#ff6f87}
+#view{max-width:1500px;padding:24px 26px 60px}
+.card,.table-wrap{background:linear-gradient(145deg,rgba(4,48,74,.78),rgba(2,31,55,.74));border:1px solid rgba(16,207,226,.26);border-radius:2px;box-shadow:var(--shadow);position:relative;overflow:hidden}
+.card:before,.table-wrap:before{content:"";position:absolute;left:0;top:0;width:52px;height:1px;background:#19dce7;box-shadow:0 0 10px #19dce7}
+.card:after{content:"";position:absolute;right:0;bottom:0;width:34px;height:1px;background:#ff7795;box-shadow:0 0 10px #ff7795}
+.kpi-label,.sub,.hint,.detail-label{color:#5d9caf}.kpi-value{color:#d9fdff;text-shadow:0 0 12px rgba(20,219,231,.28)}
+.section-title h2,.chart-title{color:#bff5fa;text-transform:uppercase;letter-spacing:.07em}
+.period-toggle,.chip,.badge-soft{background:rgba(6,53,78,.7);border-color:rgba(19,211,229,.24);border-radius:2px;color:#70aebc}
+.period-toggle button{border-radius:1px}.period-toggle button.active{background:rgba(16,208,222,.12);color:#d6fbff;box-shadow:inset 0 0 12px rgba(16,208,222,.1)}
+table{color:#bdebf0} thead th{background:rgba(4,58,82,.8);color:#4f9aac;border-bottom:1px solid rgba(17,216,232,.26);text-transform:uppercase;letter-spacing:.05em;font-size:10px}
+tbody td{border-bottom:1px solid rgba(14,143,166,.17)} tbody tr:hover{background:rgba(12,177,195,.07)}
+th.sticky-col,td.sticky-col{background:rgba(3,37,61,.95)} tbody tr:hover td.sticky-col{background:rgba(4,55,78,.98)}
+.name-cell{color:#d7fbff}.temp{border-radius:2px;border:1px solid currentColor;background:transparent!important;text-transform:uppercase;letter-spacing:.04em}
+.modal{background:linear-gradient(145deg,#062b45,#031d35);border:1px solid rgba(17,220,229,.4);border-radius:2px;box-shadow:0 0 55px rgba(0,0,0,.45),0 0 30px rgba(11,204,225,.1)}
+.modal-head,.modal-foot{border-color:rgba(17,220,229,.2)}.modal-head h3{color:#bff8fc;letter-spacing:.05em;text-transform:uppercase}
+.field input,.field select,.field textarea{background:rgba(2,31,52,.8);border-color:rgba(17,209,228,.25);border-radius:2px;color:#d9fbff}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:#14dce7;box-shadow:0 0 12px rgba(20,220,231,.1)}
+.overlay{background:rgba(0,10,20,.72);backdrop-filter:blur(4px)}
+#loginScreen{background:radial-gradient(circle at 50% 42%,rgba(8,93,118,.24),transparent 34%),#031a32;overflow:hidden}
+#loginScreen:before{content:"SYSTEM // CRM LICORNE // SECURE NODE";position:absolute;top:28px;left:34px;color:#187c8f;font:9px monospace;letter-spacing:.2em}
+#loginScreen:after{content:"AUTHORIZATION REQUIRED";position:absolute;right:34px;bottom:28px;color:#315f72;font:9px monospace;letter-spacing:.18em}
+.login-card{background:linear-gradient(145deg,rgba(5,52,78,.92),rgba(2,27,49,.92));border:1px solid rgba(16,218,231,.42);border-radius:2px;box-shadow:0 0 70px rgba(0,0,0,.42),0 0 30px rgba(10,215,231,.08);padding:38px 32px;position:relative}
+.login-card:before{content:"";position:absolute;left:-1px;top:-1px;width:75px;height:1px;background:#16dfe8;box-shadow:0 0 12px #16dfe8}.login-card:after{content:"";position:absolute;right:-1px;bottom:-1px;width:65px;height:1px;background:#ff7896;box-shadow:0 0 12px #ff7896}
+.login-card .brand{margin-bottom:28px}.login-card h2{color:#d6fbff;letter-spacing:.12em;text-transform:uppercase}.sub-login{color:#4e9aac!important}
+.login-error{color:#ff7895}.login-card .btn{margin-top:4px;height:42px;letter-spacing:.08em;text-transform:uppercase}
+#particleCanvas{mix-blend-mode:screen}
+#bootOverlay{position:fixed;inset:0;z-index:500;background:#02192f;display:flex;align-items:center;justify-content:center;overflow:hidden;opacity:1;transition:opacity .45s ease}
+#bootOverlay.hidden{opacity:0;pointer-events:none}
+.boot-grid{position:absolute;inset:0;background-image:linear-gradient(rgba(14,198,220,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(14,198,220,.08) 1px,transparent 1px);background-size:42px 42px;mask-image:linear-gradient(to bottom,transparent,#000 20%,#000 80%,transparent)}
+.boot-panel{position:relative;width:min(520px,88vw);text-align:center;padding:30px;border:1px solid rgba(17,220,229,.35);background:rgba(2,30,52,.72);box-shadow:0 0 50px rgba(0,213,230,.08)}
+.boot-panel:before{content:"BOOT SEQUENCE // LICORNE";display:block;color:#3d94a6;font:10px monospace;letter-spacing:.2em;margin-bottom:22px}
+.boot-ring{width:210px;height:210px;margin:0 auto 22px;position:relative;border-radius:50%;display:grid;place-items:center;filter:drop-shadow(0 0 14px rgba(18,221,233,.25))}
+.boot-ring svg{position:absolute;inset:0;width:100%;height:100%;transform:rotate(-90deg)}
+.boot-ring .ring-track{fill:none;stroke:rgba(22,204,224,.12);stroke-width:5}.boot-ring .ring-progress{fill:none;stroke:#19e1e8;stroke-width:5;stroke-linecap:square;stroke-dasharray:615;stroke-dashoffset:615;transition:stroke-dashoffset .08s linear}
+.boot-ring:before{content:"";position:absolute;width:154px;height:154px;border:1px solid rgba(20,212,229,.25);border-radius:50%;animation:bootSpin 4s linear infinite}
+.boot-ring:after{content:"";position:absolute;width:188px;height:188px;border:1px dashed rgba(255,113,145,.25);border-radius:50%;animation:bootSpinReverse 8s linear infinite}
+.boot-percent{position:relative;font:700 30px 'Space Grotesk',sans-serif;color:#d9fdff;text-shadow:0 0 14px rgba(17,220,229,.55)}
+.boot-percent small{display:block;font:9px monospace;color:#4f9eaf;letter-spacing:.16em;margin-top:2px}
+.boot-message{margin:0;color:#bff8fb;font:600 18px 'Space Grotesk',sans-serif;letter-spacing:.06em}.boot-message span{color:#ff8aa3;text-shadow:0 0 12px rgba(255,113,145,.45)}
+.boot-status{margin-top:10px;color:#4f96a7;font:10px monospace;letter-spacing:.12em}
+@keyframes bootSpin{to{transform:rotate(360deg)}}@keyframes bootSpinReverse{to{transform:rotate(-360deg)}}
+@media(max-width:860px){#sidebar{background:rgba(2,27,49,.98)}#view{padding:18px 14px 55px}}
+
+</style>
+</head>
+<body>
+<canvas id="particleCanvas" aria-hidden="true"></canvas>
+<div id="loginScreen">
+  <div class="login-card">
+    <div class="brand"><div class="brand-mark"></div>CRM Licorne</div>
+    <h2>Accès sécurisé</h2>
+    <p class="sub-login">Entrez le mot de passe pour accéder au CRM.</p>
+    <form id="loginForm">
+      <div class="field"><label>Mot de passe</label><input type="password" id="loginPassword" autocomplete="current-password" placeholder="••••••••"></div>
+      <div class="login-error" id="loginError"></div>
+      <button class="btn primary" type="submit">Se connecter</button>
+    </form>
+  </div>
+</div>
+<div id="app" class="locked">
+  <div id="sidebarBackdrop"></div>
+  <aside id="sidebar">
+    <div class="brand"><div class="brand-mark"></div>CRM Licorne<button class="iconbtn sidebar-close" id="sidebarCloseBtn" title="Fermer">✕</button></div>
+    <nav id="mainNav">
+      <div class="navlabel">Pilotage</div>
+      <button class="navitem" data-view="dashboard"><span class="ic">◆</span>Tableau de bord</button>
+      <button class="navitem" data-view="focus"><span class="ic">◈</span>Focus du jour</button>
+      <button class="navitem" data-view="urgence"><span class="ic">⏰</span>Matrice d'urgence</button>
+      <div class="navlabel">Prospects</div>
+      <button class="navitem" data-view="list"><span class="ic">≡</span>Tous les prospects</button>
+      <button class="navitem" data-view="updates"><span class="ic">↻</span>Mises à jour</button>
+      <button class="navitem" data-view="nrp"><span class="ic">📵</span>Dernières mises à jour NRP</button>
+      <button class="navitem" data-view="noncontacte"><span class="ic">⏱</span>Non contactés</button>
+      <button class="navitem" data-view="friction"><span class="ic">⟳</span>Tri de friction</button>
+      <button class="navitem" data-view="potentiel"><span class="ic">✦</span>Potentiel FMFP</button>
+      <div class="navlabel">Système</div>
+      <button class="navitem" data-view="settings"><span class="ic">⚙</span>Paramètres</button>
+    </nav>
+    <div class="sidebar-foot">
+      <div><span id="connDot"></span><span id="connLabel">Connexion…</span></div>
+      <div id="prospectCount" style="margin-top:4px;">—</div>
+      <button class="btn sm ghost" id="logoutBtn" style="margin-top:10px;padding-left:0;">↩ Se déconnecter</button>
+    </div>
+  </aside>
+
+  <div id="main">
+    <div id="topbar">
+      <button class="iconbtn" id="hamburgerBtn" title="Menu">☰</button>
+      <h1 id="viewTitle">Tableau de bord</h1>
+      <div class="searchbox"><span>🔎</span><input id="searchInput" placeholder="Rechercher un prospect, un contact, un secteur…"></div>
+      <div class="topbar-actions">
+        <button class="iconbtn" id="themeBtn" title="Thème">🌙</button>
+        <button class="btn primary" id="addBtn"><span class="add-icon">+</span><span class="add-label"> Nouveau prospect</span></button>
+      </div>
+    </div>
+    <div id="view"></div>
+  </div>
+</div>
+
+
+<div id="bootOverlay" class="hidden" aria-live="polite">
+  <div class="boot-grid"></div>
+  <div class="boot-panel">
+    <div class="boot-ring">
+      <svg viewBox="0 0 220 220" aria-hidden="true"><circle class="ring-track" cx="110" cy="110" r="98"></circle><circle id="bootRingProgress" class="ring-progress" cx="110" cy="110" r="98"></circle></svg>
+      <div class="boot-percent"><span id="bootPercent">0</span><small>INITIALISATION</small></div>
+    </div>
+    <p class="boot-message">Prête à faire des millions <span>Angela</span> ?</p>
+    <div class="boot-status" id="bootStatus">AUTHENTIFICATION VALIDÉE // CHARGEMENT DES MODULES</div>
+  </div>
+</div>
+
+<div id="toastHost"></div>
+
+<!-- ============ Modal: Ajouter / Modifier un prospect ============ -->
+<div class="overlay hidden" id="prospectOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="prospectModalTitle">Nouveau prospect</h3>
+      <button class="iconbtn" data-close>✕</button>
+    </div>
+    <div class="modal-body" id="prospectForm"></div>
+    <div class="modal-foot">
+      <button class="btn" data-close>Annuler</button>
+      <button class="btn primary" id="saveProspectBtn">Enregistrer</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Modal: Fiche détaillée prospect ============ -->
+<div class="overlay hidden" id="detailOverlay">
+  <div class="modal">
+    <div class="modal-head">
+      <h3 id="detailModalTitle">Fiche prospect</h3>
+      <button class="iconbtn" data-close>✕</button>
+    </div>
+    <div class="modal-body" id="detailBody"></div>
+    <div class="modal-foot">
+      <button class="btn" data-close>Fermer</button>
+      <button class="btn primary" id="detailActionBtn">Modifier</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Modal: confirmation suppression ============ -->
+<div class="overlay hidden" id="deleteOverlay">
+  <div class="modal narrow">
+    <div class="modal-head"><h3>Supprimer ce prospect ?</h3><button class="iconbtn" data-close>✕</button></div>
+    <div class="modal-body">
+      <p style="margin:0 0 4px;">Vous êtes sur le point de supprimer <b id="deleteTargetName"></b>.</p>
+      <p style="color:var(--muted);font-size:13px;margin:0;">Cette action est définitive et ne peut pas être annulée.</p>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close>Annuler</button>
+      <button class="btn danger" id="confirmDeleteBtn">Supprimer définitivement</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Modal: Appel NRP (quick action) ============ -->
+<div class="overlay hidden" id="nrpOverlay">
+  <div class="modal narrow">
+    <div class="modal-head"><h3>Appel NRP — <span id="nrpName"></span></h3><button class="iconbtn" data-close>✕</button></div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:13px;margin-top:0;">
+        Enregistre un appel non répondu : compteur NRP +1, dernier contact = aujourd'hui, relance décalée à J+2.
+      </p>
+      <div class="field"><label>Note rapide (optionnel)</label><textarea id="nrpNote" placeholder="Ex: ne décroche pas, injoignable, boîte vocale saturée…"></textarea></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close>Annuler</button>
+      <button class="btn primary" id="confirmNrpBtn">Enregistrer l'appel</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Modal: RDV pris (quick action) ============ -->
+<div class="overlay hidden" id="rdvOverlay">
+  <div class="modal">
+    <div class="modal-head"><h3>Planifier un RDV — <span id="rdvName"></span></h3><button class="iconbtn" data-close>✕</button></div>
+    <div class="modal-body">
+      <div class="field-row">
+        <div class="field"><label>Date du RDV</label><input type="date" id="rdvDate"></div>
+        <div class="field"><label>Statut RDV</label>
+          <select id="rdvStatus">
+            <option value="attente">En attente de confirmation</option>
+            <option value="presentation" selected>Présentation planifiée</option>
+            <option value="presentation, vente">Présentation + vente</option>
+          </select>
+        </div>
+      </div>
+      <div class="field grow"><label>Compte-rendu / remarques</label><textarea id="rdvNote" placeholder="Détails du rendez-vous, besoins identifiés, prochaine étape…"></textarea></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn" data-close>Annuler</button>
+      <button class="btn primary" id="confirmRdvBtn">Enregistrer le RDV</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Modal: Ajouter au Focus du jour ============ -->
+<div class="overlay hidden" id="focusPickerOverlay">
+  <div class="modal">
+    <div class="modal-head"><h3>Ajouter au Focus du jour</h3><button class="iconbtn" data-close>✕</button></div>
+    <div class="modal-body">
+      <div class="searchbox" style="max-width:100%;margin-bottom:14px;"><span>🔎</span><input id="focusPickerSearch" placeholder="Rechercher un prospect, un contact, un secteur…"></div>
+      <div id="focusPickerList" class="focus-picker-list"></div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn primary" data-close>Terminé</button>
+    </div>
+  </div>
+</div>
+
+<!-- ============ Modal: Rappel RDV J-1 ============ -->
+<div class="overlay hidden" id="rdvReminderOverlay">
+  <div class="modal narrow">
+    <div class="modal-head"><h3>📅 RDV demain</h3><button class="iconbtn" data-close>✕</button></div>
+    <div class="modal-body" id="rdvReminderBody"></div>
+    <div class="modal-foot">
+      <button class="btn primary" data-close>Compris</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ==================================================================
+   CRM Licorne — application script
+   ================================================================== */
+
+/* ---------------- Config & Supabase client ---------------- */
+const DEFAULT_SUPABASE_URL = 'https://efyomnxnzjcqosobqxeo.supabase.co';
+const DEFAULT_SUPABASE_KEY = 'sb_publishable_-1SDSkv_CTL29sluc_yKZg_TcmEV2ia';
+const TABLE = 'prospects';
+const COMMENTS_TABLE = 'prospect_comments';
+
+function getConfig(){
+  try{
+    const stored = JSON.parse(localStorage.getItem('crmlicorne_cfg') || 'null');
+    if(stored && stored.url && stored.key) return stored;
+  }catch(e){}
+  return { url: DEFAULT_SUPABASE_URL, key: DEFAULT_SUPABASE_KEY };
+}
+const CFG = getConfig();
+let sb = null;
+try{ sb = window.supabase.createClient(CFG.url, CFG.key); }catch(e){ console.error(e); }
+
+/* ---------------- Field metadata ---------------- */
+const FIELDS = [
+  {key:'nom', label:'Nom (entreprise / prospect)', type:'text', group:'Identité', required:true},
+  {key:'contact_resp', label:'Contact responsable', type:'text', group:'Identité'},
+  {key:'genre', label:'Genre (H/F)', type:'text', group:'Identité', list:true},
+  {key:'email', label:'Adresse e-mail', type:'text', group:'Identité'},
+  {key:'secteur', label:"Secteur d'activité", type:'text', group:'Identité', list:true},
+  {key:'potentiel_financier', label:'Potentiel Financier', type:'number', group:'Évaluation'},
+  {key:'chances_closing', label:'Chances de closing (%)', type:'number', group:'Évaluation'},
+  {key:'fmfp', label:'Affiliation FMFP', type:'select', group:'Qualification', options:['','Yes','No']},
+  {key:'interet', label:'Intérêt / besoin de formation', type:'text', group:'Qualification', list:true},
+  {key:'propriete', label:'Statut (Propriété)', type:'text', group:'Qualification', list:true},
+  {key:'rdv', label:'Statut RDV', type:'text', group:'Qualification', list:true},
+  {key:'premiere_prospection', label:'Première prospection', type:'date', group:'Suivi'},
+  {key:'dernier_contact', label:'Dernier contact', type:'date', group:'Suivi'},
+  {key:'dernier_mail', label:'Dernier mail', type:'date', group:'Suivi'},
+  {key:'date_relance', label:'Date de relance', type:'date', group:'Suivi'},
+  {key:'mail_relance', label:'Mail de relance envoyé', type:'text', group:'Suivi', list:true},
+  {key:'nbr_relance', label:'Nombre de relances', type:'number', group:'Suivi'},
+  {key:'nbr_relance_nrp', label:'Relances sans réponse (NRP)', type:'number', group:'Suivi'},
+  {key:'relance_origine', label:'Origine / canal de relance', type:'text', group:'Suivi', list:true},
+  {key:'prochain_action', label:"Remarques & compte-rendu (Prochain action)", type:'textarea', group:'Notes', grow:true},
+];
+const SECTEURS_POIDS = ['GROUPE','BANQUE&ASSURANCE','Energie','THR','TIC'];
+
+/* ---------------- Helper calcul valeur pondérée ---------------- */
+function getWeightedScore(p){
+  const pot = Number(p.potentiel_financier) || 0;
+  const chance = Number(p.chances_closing) || 0;
+  return pot * (chance / 100);
+}
+
+/* ---------------- Table columns ---------------- */
+const COLUMNS = [
+  {key:'nom', label:'Prospect', always:true, sticky:true,
+    render:p=>`<div class="name-cell">${escapeHtml(p.nom)}</div><div class="sub">${escapeHtml(p.secteur||'—')}</div>`},
+  {key:'weighted', label:'Score Pondéré (Val × %)', render:p=>{
+    const score = getWeightedScore(p);
+    return `<b>${score.toLocaleString('fr-FR')}</b> <span class="sub">(${p.chances_closing||0}%)</span>`;
+  }},
+  {key:'potentiel_financier', label:'Potentiel Fin.', render:p=>(Number(p.potentiel_financier)||0).toLocaleString('fr-FR')},
+  {key:'chances_closing', label:'Closing %', render:p=>(p.chances_closing||0) + '%'},
+  {key:'contact_resp', label:'Contact', render:p=>escapeHtml(p.contact_resp||'—')},
+  {key:'temp', label:'Thermomètre', render:p=>tempBadge(p)},
+  {key:'propriete', label:'Statut', render:p=>escapeHtml(p.propriete||'—')},
+  {key:'rdv', label:'RDV', render:p=>escapeHtml(p.rdv||'—')},
+  {key:'date_relance', label:'Relance', render:p=>{
+    const overdue = p.date_relance && p.date_relance < todayISO();
+    return `${p.date_relance? frDate(p.date_relance):'—'} ${overdue?'<span class="badge-soft badge-warn">en retard</span>':''}`;
+  }},
+  {key:'mise_a_jour', label:'Dernière mise à jour', render:p=>updateDateTime(p)},
+  {key:'nbr_relance_nrp', label:'NRP', render:p=>p.nbr_relance_nrp ?? 0},
+  {key:'actions', label:'', always:true,
+    render:p=>`<div class="row-actions">
+      <button class="btn sm" data-action="nrp" title="Appel NRP">📵</button>
+      <button class="btn sm" data-action="rdv" title="RDV pris">📅</button>
+      <button class="btn sm" data-action="edit" title="Modifier">✎</button>
+      <button class="btn sm" data-action="delete" title="Supprimer">🗑</button>
+    </div>`},
+];
+function visibleCols(){ return COLUMNS.filter(c => c.always || state.visibleColumns.has(c.key)); }
+
+/* ---------------- State ---------------- */
+const DEFAULT_VISIBLE_COLS = ['nom','weighted','potentiel_financier','temp','propriete','mise_a_jour','date_relance','actions'];
+function loadFocusIds(){
+  try{ return new Set(JSON.parse(localStorage.getItem('crmlicorne_focus')||'[]')); }catch(e){ return new Set(); }
+}
+function saveFocusIds(){ localStorage.setItem('crmlicorne_focus', JSON.stringify([...state.focusIds])); }
+
+const state = {
+  prospects: [], view: 'dashboard', search: '', editingId: null, prodPeriod: 'jour', dashPeriod: 'jour', charts: {},
+  visibleColumns: new Set(DEFAULT_VISIBLE_COLS), colMenuOpen: false, focusDays: 7, focusIds: loadFocusIds(),
+  currentComments: [],
+  updateFrom: '', updateTo: '', updateExcludeNrp: true, updateSector: '',
+  listSector: '', nrpFrom: '', nrpTo: '', nrpSector: ''
+};
+
+/* ---------------- Utils ---------------- */
+const $ = (sel, root=document) => root.querySelector(sel);
+const $$ = (sel, root=document) => [...root.querySelectorAll(sel)];
+function escapeHtml(s){ return (s==null?'':String(s)).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function isoDate(d){ const p=n=>String(n).padStart(2,'0'); return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; }
+function todayISO(){ return isoDate(new Date()); }
+function addDaysISO(iso, n){ const d = iso? new Date(iso+'T00:00:00') : new Date(); d.setDate(d.getDate()+n); return isoDate(d); }
+function addDaysDate(d,n){ const c=new Date(d); c.setDate(c.getDate()+n); return c; }
+function mondayOf(d){ const dt=new Date(d); const day=(dt.getDay()+6)%7; dt.setDate(dt.getDate()-day); dt.setHours(0,0,0,0); return dt; }
+function frDate(iso){ if(!iso) return '—'; const d=new Date(iso+'T00:00:00'); return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'}); }
+function frDateTime(iso){ if(!iso) return '—'; const d=new Date(iso); return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'}); }
+function shortDate(d){ return d.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}); }
+function daysBetween(a,b){ return Math.round((new Date(b)-new Date(a))/86400000); }
+function appendNote(existing, line){ return (existing && existing.trim()) ? existing.trim() + '\n\n' + line : line; }
+function distinctValues(key){ const set=new Set(); state.prospects.forEach(p=>{ if(p[key]) set.add(p[key]); }); return [...set].sort(); }
+function updateDateISO(p){
+  if(!p || !p.mise_a_jour) return '';
+  const d = new Date(p.mise_a_jour);
+  return Number.isNaN(d.getTime()) ? String(p.mise_a_jour).slice(0,10) : isoDate(d);
+}
+function updateDateTime(p){ return p && p.mise_a_jour ? frDateTime(p.mise_a_jour) : '—'; }
+function isNrpStatus(p){
+  const propriete = String(p?.propriete || '').toLowerCase();
+  if(propriete.includes('nrp')) return true;
+  // Les NRP enregistrés par le bouton 📵 laissent une trace horodatée dans prochain_action.
+  const action = String(p?.prochain_action || '');
+  return /\[Appel NRP\s+/i.test(action) && Number(p?.nbr_relance_nrp || 0) > 0;
+}
+function latestUpdateIsNrp(p){
+  // Dans la structure actuelle, mise_a_jour représente la dernière modification de la fiche.
+  // Si la dernière action connue est un appel NRP, le marqueur [Appel NRP ...] doit être
+  // le dernier événement dans le compte-rendu. Sinon, on retient le statut NRP explicite.
+  if(String(p?.propriete || '').toLowerCase().includes('nrp')) return true;
+  const action = String(p?.prochain_action || '');
+  const matches = [...action.matchAll(/\[Appel NRP\s+([^\]]+)\]/gi)];
+  if(!matches.length || !(Number(p?.nbr_relance_nrp || 0) > 0)) return false;
+  const lastNrpPos = matches[matches.length-1].index;
+  const after = action.slice(lastNrpPos + matches[matches.length-1][0].length).trim();
+  // Si aucun événement plus récent n'est identifiable dans le texte, considérer ce NRP comme dernier.
+  return after === '' || !/\[(?:RDV|Appel NRP)\s+/i.test(after);
+}
+function inUpdateRange(p, from, to){
+  const d = updateDateISO(p);
+  if(!d) return false;
+  if(from && d < from) return false;
+  if(to && d > to) return false;
+  return true;
+}
+function sectorMatches(p, sector){
+  return !sector || String(p.secteur || '') === sector;
+}
+
+function toast(msg, kind){
+  const host = $('#toastHost');
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.textContent = msg;
+  if(kind==='error') el.style.background = 'var(--danger)';
+  host.appendChild(el);
+  requestAnimationFrame(()=> el.classList.add('show'));
+  setTimeout(()=>{ el.classList.remove('show'); setTimeout(()=>el.remove(), 250); }, 3200);
+}
+
+function setConnStatus(ok, msg){
+  const dot = $('#connDot'), label = $('#connLabel');
+  dot.className = ok ? 'ok' : 'err';
+  label.textContent = ok ? 'Connecté à Supabase' : ('Hors ligne' + (msg? ' — '+msg : ''));
+}
+
+/* ---------------- Scoring: thermomètre ---------------- */
+function temperature(p){
+  const propriete = (p.propriete||'').toLowerCase();
+  const rdv = (p.rdv||'').toLowerCase();
+  const fmfp = (p.fmfp||'').toLowerCase();
+  const interet = (p.interet||'').toLowerCase();
+  const mailRelance = (p.mail_relance||'').toLowerCase();
+  if(propriete.includes('qualifié') && !propriete.includes('pas qualifié')) return 'brulant';
+  if(rdv.includes('vente') || rdv.includes('presentation')) return 'brulant';
+  if(propriete.includes('nrp')) return 'froid';
+  if(rdv === 'attente') return 'chaud';
+  if(fmfp === 'yes' && interet && !interet.includes('indefini') && interet!=='rien') return 'chaud';
+  if(propriete.includes('relance')) return 'tiede';
+  if(mailRelance && mailRelance !== 'pas encore') return 'tiede';
+  return 'froid';
+}
+const TEMP_LABEL = {brulant:'Brûlant', chaud:'Chaud', tiede:'Tiède', froid:'Froid'};
+function tempBadge(p){ const t = temperature(p); return `<span class="temp ${t}"><span class="dot"></span>${TEMP_LABEL[t]}</span>`; }
+
+function normalizeInteretTags(raw){
+  if(!raw || !raw.trim()) return ['À définir'];
+  const parts = raw.split(',').map(s=>s.trim().toLowerCase()).filter(Boolean);
+  if(!parts.length) return ['À définir'];
+  const tags = new Set();
+  parts.forEach(part=>{
+    if(/vente|closing/.test(part)) tags.add('Vente & Closing');
+    else if(/perso/.test(part)) tags.add('Développement Personnel');
+    else if(/management|leadership/.test(part)) tags.add('Management & Leadership');
+    else if(/t\.a|technique/.test(part)) tags.add('Technique/T.A');
+    else if(/marketing|digital/.test(part)) tags.add('Marketing/Digital');
+    else tags.add('À définir');
+  });
+  return [...tags];
+}
+
+function stageRank(p){
+  const propriete = (p.propriete||'').toLowerCase();
+  const rdv = (p.rdv||'').toLowerCase();
+  if(propriete.includes('qualifié') && !propriete.includes('pas qualifié')) return 4;
+  if(rdv && rdv !== 'pas encore') return 3;
+  if(propriete.includes('relance')) return 2;
+  if(propriete.includes('prospection') || propriete) return 1;
+  return 0;
+}
+
+/* ---------------- Data access ---------------- */
+async function loadProspects(){
+  if(!sb){ setConnStatus(false, 'client non initialisé'); return []; }
+  const { data, error } = await sb.from(TABLE).select('*').order('id', {ascending:true});
+  if(error){ setConnStatus(false, error.message); toast('Erreur de chargement : '+error.message, 'error'); return []; }
+  setConnStatus(true);
+  return data || [];
+}
+
+async function refreshData(){
+  state.prospects = await loadProspects();
+  $('#prospectCount').textContent = state.prospects.length + ' prospects';
+  render();
+}
+
+async function saveProspect(payload, id){
+  const clean = { ...payload };
+  ['nbr_relance','nbr_relance_nrp','potentiel_financier','chances_closing'].forEach(k=>{ 
+    clean[k] = clean[k]===''||clean[k]==null ? 0 : Number(clean[k]); 
+  });
+  ['premiere_prospection','dernier_contact','dernier_mail','date_relance'].forEach(k=>{ if(clean[k]==='') clean[k]=null; });
+  clean.mise_a_jour = new Date().toISOString();
+  if(id){
+    const { error } = await sb.from(TABLE).update(clean).eq('id', id);
+    if(error){ toast("Erreur d'enregistrement : "+error.message,'error'); return false; }
+    toast('Prospect mis à jour.');
+  } else {
+    clean.premiere_prospection = clean.premiere_prospection || todayISO();
+    const { error } = await sb.from(TABLE).insert(clean);
+    if(error){ toast("Erreur d'enregistrement : "+error.message,'error'); return false; }
+    toast('Prospect ajouté.');
+  }
+  await refreshData();
+  return true;
+}
+
+async function deleteProspectById(id){
+  const { error } = await sb.from(TABLE).delete().eq('id', id);
+  if(error){ toast('Erreur de suppression : '+error.message,'error'); return; }
+  toast('Prospect supprimé.');
+  await refreshData();
+}
+
+async function applyNrp(p, note){
+  const today = todayISO();
+  const patch = {
+    nbr_relance_nrp: (Number(p.nbr_relance_nrp)||0) + 1,
+    dernier_contact: today,
+    date_relance: addDaysISO(today, 2),
+    mise_a_jour: new Date().toISOString(),
+  };
+  if(note && note.trim()) patch.prochain_action = appendNote(p.prochain_action, `[Appel NRP ${frDate(today)}] ${note.trim()}`);
+  const { error } = await sb.from(TABLE).update(patch).eq('id', p.id);
+  if(error){ toast('Erreur : '+error.message,'error'); return; }
+  toast('Appel NRP enregistré.');
+  await refreshData();
+}
+
+/* ---------------- Commentaires infinitésimaux avec Date automatique ---------------- */
+async function loadComments(prospectId){
+  if(!sb) return [];
+  const { data, error } = await sb.from(COMMENTS_TABLE).select('*').eq('prospect_id', prospectId).order('created_at', {ascending:false});
+  if(error){ console.error(error); return []; }
+  return data || [];
+}
+
+async function addComment(prospectId, text){
+  if(!text || !text.trim()) return;
+  const { error } = await sb.from(COMMENTS_TABLE).insert({
+    prospect_id: prospectId,
+    commentaire: text.trim()
+  });
+  if(error){ toast("Erreur d'ajout de commentaire : "+error.message, 'error'); return; }
+  toast("Commentaire ajouté !");
+  state.currentComments = await loadComments(prospectId);
+  renderDetailModal();
+}
+
+/* ---------------- RDV reminders ---------------- */
+function loadRdvReminders(){
+  let map = {};
+  try{ map = JSON.parse(localStorage.getItem('crmlicorne_rdvs')||'{}'); }catch(e){ map = {}; }
+  const today = todayISO();
+  Object.keys(map).forEach(id=>{ if(map[id].date && map[id].date < today) delete map[id]; });
+  return map;
+}
+function registerRdvReminder(p, date){
+  if(!date) return;
+  const map = loadRdvReminders();
+  map[p.id] = { date, nom: p.nom };
+  localStorage.setItem('crmlicorne_rdvs', JSON.stringify(map));
+}
+function showRdvReminderPopup(list){
+  $('#rdvReminderBody').innerHTML = `
+    <p style="margin-top:0;color:var(--muted);font-size:13px;">Vous avez ${list.length} rendez-vous prévu${list.length>1?'s':''} demain :</p>
+    <div style="display:flex;flex-direction:column;gap:8px;">
+      ${list.map(info=>`<div class="card" style="padding:12px 14px;"><b>${escapeHtml(info.nom)}</b><div class="sub">${frDate(info.date)}</div></div>`).join('')}
+    </div>
+  `;
+  $('#rdvReminderOverlay').classList.remove('hidden');
+}
+function checkRdvReminders(){
+  const map = loadRdvReminders();
+  const tomorrow = addDaysISO(todayISO(), 1);
+  const seenKey = 'crmlicorne_rdv_seen_' + todayISO();
+  let seen = [];
+  try{ seen = JSON.parse(localStorage.getItem(seenKey)||'[]'); }catch(e){ seen = []; }
+  const due = Object.entries(map).filter(([id,info]) => info.date === tomorrow && !seen.includes(id));
+  if(due.length){
+    showRdvReminderPopup(due.map(([id,info])=>info));
+    localStorage.setItem(seenKey, JSON.stringify([...seen, ...due.map(([id])=>id)]));
+  }
+}
+
+async function applyRdv(p, {date, status, note}){
+  const today = todayISO();
+  const patch = {
+    rdv: status,
+    dernier_contact: today,
+    mise_a_jour: new Date().toISOString(),
+  };
+  const line = `[RDV ${date? frDate(date): frDate(today)}] ${(note||'').trim()}`.trim();
+  patch.prochain_action = appendNote(p.prochain_action, line);
+  const { error } = await sb.from(TABLE).update(patch).eq('id', p.id);
+  if(error){ toast('Erreur : '+error.message,'error'); return; }
+  registerRdvReminder(p, date || today);
+  toast('RDV enregistré — prospect réchauffé 🔥');
+  await refreshData();
+}
+
+/* ---------------- Filtering & Sorting par (Potentiel × Closing) ---------------- */
+function matchesSearch(p, term){
+  if(!term) return true;
+  const hay = [p.nom, p.contact_resp, p.secteur, p.email, p.propriete].map(x=>(x||'').toLowerCase()).join(' ');
+  return hay.includes(term.toLowerCase());
+}
+function baseFiltered(){ 
+  // Classé par la valeur pondérée : Potentiel Financier x Chances de Closing
+  return state.prospects.filter(p => matchesSearch(p, state.search))
+    .sort((a, b) => getWeightedScore(b) - getWeightedScore(a));
+}
+
+/* ==================================================================
+   Rendering
+   ================================================================== */
+const VIEW_TITLES = {
+  dashboard:'Tableau de bord', focus:'Focus du jour', urgence:"Matrice d'urgence", list:'Tous les prospects',
+  updates:'Mises à jour', nrp:'Dernières mises à jour NRP', noncontacte:'Non contactés',
+  friction:'Tri de friction', potentiel:'Potentiel FMFP', settings:'Paramètres'
+};
+
+function render(){
+  $('#viewTitle').textContent = VIEW_TITLES[state.view];
+  $$('.navitem').forEach(b => b.classList.toggle('active', b.dataset.view === state.view));
+  const view = $('#view');
+  if(state.view === 'dashboard') view.innerHTML = dashboardHTML();
+  else if(state.view === 'focus') view.innerHTML = focusHTML();
+  else if(state.view === 'urgence') view.innerHTML = urgenceHTML();
+  else if(state.view === 'list') view.innerHTML = listHTML(baseFiltered(), 'Tous les prospects', 'Classés par Potentiel Financier × Chances de Closing');
+  else if(state.view === 'updates') view.innerHTML = updatesHTML();
+  else if(state.view === 'nrp') view.innerHTML = nrpHTML();
+  else if(state.view === 'noncontacte') view.innerHTML = noncontacteHTML();
+  else if(state.view === 'friction') view.innerHTML = frictionHTML();
+  else if(state.view === 'potentiel') view.innerHTML = potentielHTML();
+  else if(state.view === 'settings') view.innerHTML = settingsHTML();
+
+  if(state.view === 'dashboard') setTimeout(buildDashboardCharts, 0);
+  wireDynamicHandlers();
+}
+
+function rowHTML(p, cols){
+  return `<tr data-id="${p.id}">
+    ${cols.map(c => `<td class="${c.sticky?'sticky-col':''}">${c.render(p)}</td>`).join('')}
+  </tr>`;
+}
+
+function columnChooserHTML(){
+  return `
+  <div class="toolbar">
+    <div class="col-chooser">
+      <button class="btn sm" id="colChooserBtn" type="button">🧩 Choisir les champs à afficher</button>
+      <div class="col-menu ${state.colMenuOpen?'':'hidden'}" id="colMenu">
+        ${COLUMNS.filter(c=>!c.always).map(c=>`<label class="col-menu-item"><input type="checkbox" data-col="${c.key}" ${state.visibleColumns.has(c.key)?'checked':''}> ${c.label}</label>`).join('')}
+      </div>
+    </div>
+    <span class="hint" style="color:var(--muted);font-size:12px;">↔ Trié automatiquement par Potentiel × Closing (décroissant)</span>
+  </div>`;
+}
+
+function tableShell(rows, emptyMsg, showColChooser=true){
+  const cols = visibleCols();
+  const toolbar = showColChooser ? columnChooserHTML() : '';
+  if(!rows.length){
+    return `${toolbar}<div class="table-wrap"><div class="empty"><div class="big">🗂️</div>${emptyMsg}</div></div>`;
+  }
+  return `${toolbar}<div class="table-wrap"><table style="min-width:${Math.max(760, cols.length*130)}px">
+    <thead><tr>${cols.map(c=>`<th class="${c.sticky?'sticky-col':''}">${c.label}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(p=>rowHTML(p, cols)).join('')}</tbody>
+  </table></div>`;
+}
+
+function listHTML(rows, title, hint){
+  const sectors = distinctValues('secteur');
+  const filteredRows = rows.filter(p => sectorMatches(p, state.listSector));
+  return `
+    <div class="section-title"><h2>${title}</h2><span class="hint">${hint} · ${filteredRows.length} résultat(s)</span></div>
+    <div class="toolbar">
+      <label class="chip" style="display:flex;align-items:center;gap:8px;">
+        Secteur :
+        <select id="sectorFilter" style="border:0;background:transparent;color:var(--text);font-weight:600;outline:0;">
+          <option value="">Tous les secteurs</option>
+          ${sectors.map(s=>`<option value="${escapeHtml(s)}" ${state.listSector===s?'selected':''}>${escapeHtml(s)}</option>`).join('')}
+        </select>
+      </label>
+    </div>
+    ${tableShell(filteredRows, "Aucun prospect ne correspond à votre recherche ou à ce secteur.")}
+  `;
+}
+
+function updateFiltersHTML(prefix, from, to, sector, excludeNrp){
+  const sectors = distinctValues('secteur');
+  return `
+    <div class="toolbar" style="align-items:flex-end;">
+      <div class="field" style="margin:0;min-width:150px;">
+        <label>Date de début</label>
+        <input type="date" id="${prefix}From" value="${from}">
+      </div>
+      <div class="field" style="margin:0;min-width:150px;">
+        <label>Date de fin</label>
+        <input type="date" id="${prefix}To" value="${to}">
+      </div>
+      <div class="field" style="margin:0;min-width:190px;">
+        <label>Secteur d'activité</label>
+        <select id="${prefix}Sector">
+          <option value="">Tous les secteurs</option>
+          ${sectors.map(s=>`<option value="${escapeHtml(s)}" ${sector===s?'selected':''}>${escapeHtml(s)}</option>`).join('')}
+        </select>
+      </div>
+      ${prefix==='update' ? `
+      <label class="chip" style="height:38px;display:flex;align-items:center;gap:8px;">
+        <input type="checkbox" id="updateExcludeNrp" ${excludeNrp?'checked':''}>
+        Exclure les NRP
+      </label>` : ''}
+      <button class="btn sm" id="${prefix}ResetBtn" type="button">Réinitialiser</button>
+    </div>`;
+}
+
+function updatesHTML(){
+  const fromLabel = state.updateFrom || 'début';
+  const toLabel = state.updateTo || "aujourd'hui";
+  const rows = state.prospects
+    .filter(p => inUpdateRange(p, state.updateFrom, state.updateTo))
+    .filter(p => !state.updateExcludeNrp || !isNrpStatus(p))
+    .filter(p => sectorMatches(p, state.updateSector))
+    .sort((a,b) => new Date(b.mise_a_jour||0) - new Date(a.mise_a_jour||0));
+  return `
+    <div class="section-title">
+      <h2>Entreprises mises à jour</h2>
+      <span class="hint">${rows.length} résultat(s) · période ${fromLabel} → ${toLabel}</span>
+    </div>
+    ${updateFiltersHTML('update', state.updateFrom, state.updateTo, state.updateSector, state.updateExcludeNrp)}
+    ${tableShell(rows, "Aucune entreprise ne correspond à cette période / ce filtre.")}
+  `;
+}
+
+function nrpHTML(){
+  const rows = state.prospects
+    .filter(p => latestUpdateIsNrp(p))
+    .filter(p => inUpdateRange(p, state.nrpFrom, state.nrpTo))
+    .filter(p => sectorMatches(p, state.nrpSector))
+    .sort((a,b) => new Date(b.mise_a_jour||0) - new Date(a.mise_a_jour||0));
+  return `
+    <div class="section-title">
+      <h2>Dernières mises à jour = NRP</h2>
+      <span class="hint">${rows.length} résultat(s)</span>
+    </div>
+    ${updateFiltersHTML('nrp', state.nrpFrom, state.nrpTo, state.nrpSector, false)}
+    ${rows.length ? tableShell(rows, "Aucune fiche dont la dernière mise à jour est NRP.") : tableShell([], "Aucune fiche dont la dernière mise à jour est NRP.")}
+  `;
+}
+
+function focusRowHTML(p){
+  return `<tr data-id="${p.id}">
+    <td class="sticky-col"><div class="name-cell">${escapeHtml(p.nom)}</div><div class="sub">${escapeHtml(p.secteur||'—')}</div></td>
+    <td><b>${getWeightedScore(p).toLocaleString('fr-FR')}</b></td>
+    <td>${tempBadge(p)}</td>
+    <td>${escapeHtml(p.propriete||'—')}</td>
+    <td>${p.dernier_contact? frDate(p.dernier_contact):'—'}</td>
+    <td>${(() => { const v=(p.prochain_action||'').trim(); if(!v) return '—'; return escapeHtml(v.length>50? v.slice(0,50)+'…' : v); })()}</td>
+    <td>
+      <div class="row-actions">
+        <button class="btn sm" data-action="unfocus" title="Retirer du focus">✕ Focus</button>
+        <button class="btn sm" data-action="nrp" title="Appel NRP">📵</button>
+        <button class="btn sm" data-action="rdv" title="RDV pris">📅</button>
+        <button class="btn sm" data-action="edit" title="Modifier">✎</button>
+      </div>
+    </td>
+  </tr>`;
+}
+function focusTableShell(rows, emptyMsg){
+  if(!rows.length) return `<div class="table-wrap"><div class="empty"><div class="big">☀️</div>${emptyMsg}</div></div>`;
+  return `<div class="table-wrap"><table style="min-width:760px">
+    <thead><tr><th class="sticky-col">Prospect</th><th>Score Pondéré</th><th>Thermomètre</th><th>Statut</th><th>Dernier contact</th><th>Prochaine action</th><th></th></tr></thead>
+    <tbody>${rows.map(focusRowHTML).join('')}</tbody>
+  </table></div>`;
+}
+
+function focusHTML(){
+  const rows = baseFiltered().filter(p => state.focusIds.has(p.id));
+  return `
+    <div class="section-title">
+      <h2>Focus du jour</h2>
+      <span class="hint">Sélection manuelle · ${rows.length} prospect(s)</span>
+    </div>
+    <div class="toolbar">
+      <button class="btn primary sm" id="addFocusBtn">+ Ajouter un prospect au focus</button>
+    </div>
+    ${focusTableShell(rows, "Aucun prospect en focus pour l'instant — cliquez sur « + Ajouter un prospect au focus » pour en choisir dans votre liste.")}
+  `;
+}
+
+function renderFocusPicker(term){
+  const list = $('#focusPickerList');
+  const rows = state.prospects.filter(p=>matchesSearch(p, term)).sort((a,b)=>getWeightedScore(b)-getWeightedScore(a));
+  if(!rows.length){ list.innerHTML = `<div class="empty" style="padding:24px;"><div class="big">🔍</div>Aucun résultat.</div>`; return; }
+  list.innerHTML = rows.map(p=>{
+    const inFocus = state.focusIds.has(p.id);
+    return `<div class="focus-picker-item ${inFocus?'in-focus':''}" data-id="${p.id}">
+      <div><div class="fp-name">${escapeHtml(p.nom)}</div><div class="fp-sub">${escapeHtml(p.contact_resp||p.secteur||'—')} · Score: ${getWeightedScore(p).toLocaleString('fr-FR')}</div></div>
+      <div class="fp-check">${inFocus? '✓ Dans le focus' : '+ Ajouter'}</div>
+    </div>`;
+  }).join('');
+  $$('#focusPickerList .focus-picker-item').forEach(item=>{
+    item.onclick = ()=>{
+      const id = Number(item.dataset.id);
+      if(state.focusIds.has(id)) state.focusIds.delete(id); else state.focusIds.add(id);
+      saveFocusIds();
+      renderFocusPicker($('#focusPickerSearch').value);
+      if(state.view==='focus') view_refresh_focus();
+    };
+  });
+}
+function view_refresh_focus(){ $('#view').innerHTML = focusHTML(); wireDynamicHandlers(); }
+function openFocusPicker(){
+  $('#focusPickerSearch').value = '';
+  renderFocusPicker('');
+  $('#focusPickerOverlay').classList.remove('hidden');
+}
+
+function urgenceHTML(){
+  const today = todayISO();
+  const due = baseFiltered().filter(p => p.date_relance && p.date_relance <= today);
+  const late = due.filter(p=>p.date_relance < today).length;
+  return `
+    <div class="grid cols-3" style="margin-bottom:6px;">
+      <div class="card"><div class="kpi-label">À relancer aujourd'hui ou en retard</div><div class="kpi-value num">${due.length}</div></div>
+      <div class="card"><div class="kpi-label">Dont en retard</div><div class="kpi-value num" style="color:var(--danger)">${late}</div></div>
+      <div class="card"><div class="kpi-label">Relances planifiées (total base)</div><div class="kpi-value num">${state.prospects.filter(p=>p.date_relance).length}</div></div>
+    </div>
+    <div class="section-title"><h2>Matrice d'urgence</h2><span class="hint">Calcul automatique · classé par valeur pondérée (Potentiel × %)</span></div>
+    ${tableShell(due, "Aucune relance due aujourd'hui — la matrice d'urgence est à jour ✅")}
+  `;
+}
+
+function noncontacteHTML(){
+  const today = todayISO();
+  const X = Number(state.focusDays) || 7;
+  const stale = baseFiltered().filter(p => !p.dernier_contact || daysBetween(p.dernier_contact, today) >= X);
+  return `
+    <div class="section-title">
+      <h2>Non contactés depuis X jours</h2>
+      <span class="hint">${stale.length} résultat(s)</span>
+    </div>
+    <div class="toolbar">
+      <label class="chip" style="display:flex;align-items:center;gap:8px;">
+        Seuil sans contact (jours) :
+        <input type="number" id="focusDaysInput" min="1" value="${X}"
+          style="width:56px;border:1px solid var(--line);border-radius:6px;padding:4px 6px;background:var(--panel);color:var(--text);font-weight:600;">
+      </label>
+    </div>
+    ${tableShell(stale, "Aucun prospect au-delà de ce seuil — tout est à jour ✅")}
+  `;
+}
+
+function frictionHTML(){
+  const rows = baseFiltered()
+    .filter(p => (p.nbr_relance_nrp||0) > 0 || (p.mise_a_jour && daysBetween(p.mise_a_jour, new Date()) > 14));
+  return `
+    <div class="section-title"><h2>Tri de friction</h2><span class="hint">Classé par relances NRP / Stagnation</span></div>
+    ${tableShell(rows, "Aucune fiche à friction — tout le monde répond correctement 🎉")}
+  `;
+}
+
+function potentielHTML(){
+  const rows = baseFiltered().filter(p => (p.fmfp||'').toLowerCase()==='yes');
+  return `
+    <div class="section-title"><h2>Potentiel FMFP</h2><span class="hint">Éligibles FMFP · Classés par Valeur Pondérée</span></div>
+    ${tableShell(rows, "Aucun prospect FMFP pour le moment.")}
+  `;
+}
+
+function settingsHTML(){
+  const masked = CFG.key.slice(0,14) + '••••••••' + CFG.key.slice(-4);
+  return `
+    <div class="grid cols-2">
+      <div class="card">
+        <h3 style="margin-top:0;">Connexion Supabase</h3>
+        <div class="kv"><b>Projet</b><span>${escapeHtml(CFG.url)}</span></div>
+        <div class="kv"><b>Clé anon / publishable</b><code class="inline">${escapeHtml(masked)}</code></div>
+        <div class="kv"><b>Table</b><code class="inline">${TABLE}</code></div>
+        <form id="settingsForm">
+          <div class="field"><label>Project URL</label><input name="url" value="${escapeHtml(CFG.url)}"></div>
+          <div class="field"><label>Anon / publishable key</label><input name="key" value="${escapeHtml(CFG.key)}"></div>
+          <button class="btn primary" type="submit">Enregistrer &amp; recharger</button>
+        </form>
+      </div>
+      <div class="card">
+        <h3 style="margin-top:0;">À propos de cette version</h3>
+        <p style="font-size:13px;color:var(--muted);line-height:1.7;margin-top:0;">
+          Fonctionnalités avancées actives :<br>
+          • Champs <b>Potentiel financier</b> et <b>Chances de closing (%)</b> modifiables.<br>
+          • Classement automatique des opportunités selon <b>Potentiel × Chances de closing</b>.<br>
+          • Module de <b>commentaires infinis horodatés</b> automatiquement avec Supabase.
+        </p>
+      </div>
+    </div>
+  `;
+}
+
+/* ---------------- Dashboard KPIs & Charts ---------------- */
+function periodRange(period){
+  const today = todayISO();
+  if(period==='jour') return { start: today, end: today };
+  if(period==='semaine') return { start: isoDate(mondayOf(new Date())), end: today };
+  return { start: today.slice(0,7)+'-01', end: today };
+}
+function inRange(v, range){ return !!v && v >= range.start && v <= range.end; }
+
+function dashboardHTML(){
+  const total = state.prospects.length;
+  const totalWeighted = state.prospects.reduce((acc, p) => acc + getWeightedScore(p), 0);
+  const qualifies = state.prospects.filter(p => (p.propriete||'').toLowerCase().includes('qualifié') && !(p.propriete||'').toLowerCase().includes('pas qualifié')).length;
+  const reachable = state.prospects.filter(p => p.dernier_contact && !(p.propriete||'').toLowerCase().includes('nrp')).length;
+  const attempted = state.prospects.filter(p => (p.nbr_relance||0) > 0 || p.dernier_contact).length;
+  const joignabilite = attempted ? Math.round(100*reachable/attempted) : 0;
+  const conversion = total ? Math.round(100*qualifies/total) : 0;
+  const range = periodRange(state.dashPeriod);
+  const appels = state.prospects.filter(p => inRange(p.dernier_contact, range)).length;
+  const mails = state.prospects.filter(p => inRange(p.dernier_mail, range)).length;
+  const rdvs = state.prospects.filter(p => (p.rdv && p.rdv.toLowerCase()!=='pas encore') && inRange(p.dernier_contact, range)).length;
+
+  return `
+  <div class="grid cols-4">
+    <div class="card"><div class="kpi-label">Prospects au total</div><div class="kpi-value num">${total}</div><div class="kpi-sub">Base CRM Licorne</div></div>
+    <div class="card"><div class="kpi-label">Valeur du Pipeline Pondérée</div><div class="kpi-value num" style="color:var(--brand);">${totalWeighted.toLocaleString('fr-FR')}</div><div class="kpi-sub">∑ (Potentiel × Closing %)</div></div>
+    <div class="card"><div class="kpi-label">Taux de joignabilité</div><div class="kpi-value num">${joignabilite}%</div><div class="kpi-sub">Contacts aboutis / tentatives</div></div>
+    <div class="card"><div class="kpi-label">Taux de conversion</div><div class="kpi-value num">${conversion}%</div><div class="kpi-sub">Fiches qualifiées / total</div></div>
+  </div>
+
+  <div class="section-title">
+    <h2>Activité commerciale</h2>
+    <div class="period-toggle" id="dashPeriodToggle">
+      <button data-period="jour" class="${state.dashPeriod==='jour'?'active':''}">Jour</button>
+      <button data-period="semaine" class="${state.dashPeriod==='semaine'?'active':''}">Semaine</button>
+      <button data-period="mois" class="${state.dashPeriod==='mois'?'active':''}">Mois</button>
+    </div>
+  </div>
+  <div class="grid cols-3">
+    <div class="card"><div class="kpi-label">Appels / contacts passés</div><div class="kpi-value num">${appels}</div></div>
+    <div class="card"><div class="kpi-label">Mails envoyés</div><div class="kpi-value num">${mails}</div></div>
+    <div class="card"><div class="kpi-label">RDV fixés / présentés</div><div class="kpi-value num">${rdvs}</div></div>
+  </div>
+
+  <div class="section-title"><h2>Pilotage graphique</h2><span class="hint">Recalculé automatiquement</span></div>
+  <div class="grid cols-2">
+    <div class="card"><div class="chart-title">Funnel du pipeline commercial</div><canvas id="chartFunnel" height="200"></canvas></div>
+    <div class="card"><div class="chart-title">Thermomètre d'intérêt</div><canvas id="chartThermo" height="200"></canvas></div>
+    <div class="card"><div class="chart-title">Répartition des demandes de formation</div><canvas id="chartInteret" height="200"></canvas></div>
+    <div class="card">
+      <div class="chart-title" style="display:flex;justify-content:space-between;align-items:center;">
+        <span>Productivité temporelle</span>
+        <div class="period-toggle" id="prodPeriodToggle">
+          <button data-period="jour" class="${state.prodPeriod==='jour'?'active':''}">Jour</button>
+          <button data-period="semaine" class="${state.prodPeriod==='semaine'?'active':''}">Semaine</button>
+          <button data-period="mois" class="${state.prodPeriod==='mois'?'active':''}">Mois</button>
+        </div>
+      </div>
+      <canvas id="chartProductivity" height="200"></canvas>
+    </div>
+  </div>
+  `;
+}
+
+function themeColor(varName){ return getComputedStyle(document.documentElement).getPropertyValue(varName).trim(); }
+function destroyCharts(){ Object.values(state.charts).forEach(c => c && c.destroy()); state.charts = {}; }
+
+function buildDashboardCharts(){
+  destroyCharts();
+  const muted = themeColor('--muted'), line = themeColor('--line');
+  Chart.defaults.color = muted;
+  Chart.defaults.borderColor = line;
+  Chart.defaults.font.family = "Inter, sans-serif";
+
+  // Funnel
+  const stages = ['Prospection','Relance','RDV obtenu','Qualification'];
+  const counts = [1,2,3,4].map(r => state.prospects.filter(p=>stageRank(p)>=r).length);
+  state.charts.funnel = new Chart($('#chartFunnel'), {
+    type:'bar',
+    data:{ labels: stages, datasets:[{ data: counts, backgroundColor:[themeColor('--froid'),themeColor('--tiede'),themeColor('--chaud'),themeColor('--brulant')], borderRadius:6 }]},
+    options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{ x:{ grid:{color:line} }, y:{ grid:{display:false} } } }
+  });
+
+  // Thermomètre
+  const tempCounts = {brulant:0,chaud:0,tiede:0,froid:0};
+  state.prospects.forEach(p => tempCounts[temperature(p)]++);
+  state.charts.thermo = new Chart($('#chartThermo'), {
+    type:'doughnut',
+    data:{ labels:['Brûlant','Chaud','Tiède','Froid'], datasets:[{ data:[tempCounts.brulant,tempCounts.chaud,tempCounts.tiede,tempCounts.froid],
+      backgroundColor:[themeColor('--brulant'),themeColor('--chaud'),themeColor('--tiede'),themeColor('--froid')], borderWidth:2, borderColor: themeColor('--panel') }]},
+    options:{ plugins:{ legend:{ position:'bottom', labels:{boxWidth:10, boxHeight:10} } }, cutout:'62%' }
+  });
+
+  // Intérêt
+  const tagCounts = {};
+  state.prospects.forEach(p => normalizeInteretTags(p.interet).forEach(t => tagCounts[t]=(tagCounts[t]||0)+1));
+  const tagEntries = Object.entries(tagCounts).sort((a,b)=>b[1]-a[1]);
+  state.charts.interet = new Chart($('#chartInteret'), {
+    type:'bar',
+    data:{ labels: tagEntries.map(e=>e[0]), datasets:[{ data: tagEntries.map(e=>e[1]), backgroundColor: themeColor('--brand'), borderRadius:6 }]},
+    options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{ x:{ grid:{color:line} }, y:{ grid:{display:false} } } }
+  });
+
+  // Productivité
+  buildProductivityChart();
+}
+
+function buildProductivityChart(){
+  if(state.charts.productivity) state.charts.productivity.destroy();
+  const now = new Date();
+  let labels=[], data=[];
+  if(state.prodPeriod==='jour'){
+    for(let i=13;i>=0;i--){ const d=addDaysDate(now,-i); const key=isoDate(d); labels.push(shortDate(d));
+      data.push(state.prospects.filter(p=>p.dernier_contact===key).length); }
+  } else if(state.prodPeriod==='semaine'){
+    for(let i=7;i>=0;i--){ const start=addDaysDate(mondayOf(now), -7*i); const end=addDaysDate(start,6);
+      const s=isoDate(start), e=isoDate(end); labels.push(shortDate(start));
+      data.push(state.prospects.filter(p=>p.dernier_contact && p.dernier_contact>=s && p.dernier_contact<=e).length); }
+  } else {
+    for(let i=5;i>=0;i--){ const d=new Date(now.getFullYear(), now.getMonth()-i, 1); const key = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+      labels.push(d.toLocaleDateString('fr-FR',{month:'short'}));
+      data.push(state.prospects.filter(p=>p.dernier_contact && p.dernier_contact.startsWith(key)).length); }
+  }
+  state.charts.productivity = new Chart($('#chartProductivity'), {
+    type:'bar',
+    data:{ labels, datasets:[{ data, backgroundColor: themeColor('--chaud'), borderRadius:5 }] },
+    options:{ plugins:{legend:{display:false}}, scales:{ x:{grid:{display:false}}, y:{grid:{color: themeColor('--line')}} } }
+  });
+}
+
+/* ==================================================================
+   Modal: Add / Edit Prospect
+   ================================================================== */
+function fieldHTML(f, value){
+  const dl = f.list ? `<datalist id="dl_${f.key}">${distinctValues(f.key).map(v=>`<option value="${escapeHtml(v)}">`).join('')}</datalist>` : '';
+  const v = value==null? '' : value;
+  if(f.type==='select'){
+    return `<div class="field"><label>${f.label}</label><select name="${f.key}">
+      ${f.options.map(o=>`<option value="${o}" ${o===v?'selected':''}>${o||'—'}</option>`).join('')}
+    </select></div>`;
+  }
+  if(f.type==='textarea'){
+    return `<div class="field ${f.grow?'grow':''}"><label>${f.label}</label><textarea name="${f.key}" placeholder="Notes, comptes-rendus d'appels, historique...">${escapeHtml(v)}</textarea></div>`;
+  }
+  const listAttr = f.list ? `list="dl_${f.key}"` : '';
+  return `<div class="field"><label>${f.label}</label><input type="${f.type}" name="${f.key}" value="${f.type==='date'? v : escapeHtml(v)}" ${listAttr}>${dl}</div>`;
+}
+
+function buildProspectForm(prospect){
+  const groups = ['Identité','Évaluation','Qualification','Suivi','Notes'];
+  return groups.map(g => `
+    <div class="fieldset-title">${g}</div>
+    ${FIELDS.filter(f=>f.group===g).map(f => fieldHTML(f, prospect ? prospect[f.key] : (f.key==='premiere_prospection'? todayISO() : ''))).join('')}
+  `).join('');
+}
+
+/* ==================================================================
+   Fiche détaillée prospect (avec commentaires infinis)
+   ================================================================== */
+let detailTarget = null;
+let detailEditing = false;
+
+function detailReadHTML(p){
+  const weighted = getWeightedScore(p);
+  const rows = [
+    ['Nom de la boîte', escapeHtml(p.nom||'—')],
+    ['Genre (H/F)', escapeHtml(p.genre||'—')],
+    ['Potentiel Financier', (Number(p.potentiel_financier)||0).toLocaleString('fr-FR')],
+    ['Chances de Closing (%)', (p.chances_closing||0) + '%'],
+    ['Valeur Pondérée (P × %)', `<b>${weighted.toLocaleString('fr-FR')}</b>`],
+    ['Statut', escapeHtml(p.propriete||'—')],
+    ['Besoin / intérêt de formation', escapeHtml(p.interet||'—')],
+    ['Dernier contact', p.dernier_contact? frDate(p.dernier_contact):'—'],
+  ];
+
+  const commentsList = state.currentComments.length 
+    ? state.currentComments.map(c => `
+        <div class="comment-box">
+          <div class="comment-head"><span>Posté le</span><span>${frDateTime(c.created_at)}</span></div>
+          <div class="comment-body">${escapeHtml(c.commentaire)}</div>
+        </div>
+      `).join('')
+    : '<div style="color:var(--muted);font-size:12.5px;">Aucun commentaire pour le moment.</div>';
+
+  return `
+    <div class="detail-grid">
+      ${rows.map(([label,val])=>`<div class="detail-item"><div class="detail-label">${label}</div><div class="detail-value">${val}</div></div>`).join('')}
+    </div>
+
+    <div class="detail-item" style="margin-top:16px;">
+      <div class="detail-label">Notes globales</div>
+      <div class="detail-value" style="white-space:pre-wrap;background:var(--panel-2);padding:10px;border-radius:8px;border:1px solid var(--line);">${p.prochain_action && p.prochain_action.trim() ? escapeHtml(p.prochain_action) : '—'}</div>
+    </div>
+
+    <div class="comments-section">
+      <div class="detail-label" style="margin-bottom:8px;">Commentaires / Chronologie (${state.currentComments.length})</div>
+      <div class="comments-list">${commentsList}</div>
+      <div class="add-comment-form">
+        <textarea id="newCommentText" placeholder="Ajouter un nouveau commentaire... (la date sera ajoutée automatiquement)"></textarea>
+        <button class="btn primary sm" id="addCommentBtn" style="height:50px;">Publier</button>
+      </div>
+    </div>
+  `;
+}
+
+function detailEditFormHTML(p){
+  return `
+    <div class="field-row">
+      <div class="field"><label>Nom (entreprise / prospect)</label><input type="text" id="d_nom" value="${escapeHtml(p.nom||'')}"></div>
+      <div class="field"><label>Genre (H/F)</label><input type="text" id="d_genre" value="${escapeHtml(p.genre||'')}"></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Potentiel Financier</label><input type="number" id="d_potentiel" value="${p.potentiel_financier||0}"></div>
+      <div class="field"><label>Chances de Closing (%)</label><input type="number" id="d_closing" value="${p.chances_closing||0}"></div>
+    </div>
+    <div class="field"><label>Statut (Propriété)</label><input type="text" id="d_propriete" value="${escapeHtml(p.propriete||'')}"></div>
+    <div class="field"><label>Besoin / intérêt de formation</label><input type="text" id="d_interet" value="${escapeHtml(p.interet||'')}"></div>
+    <div class="field-row">
+      <div class="field"><label>Dernier contact</label><input type="date" id="d_dernier_contact" value="${p.dernier_contact||''}"></div>
+      <div class="field"><label>Dernier mail</label><input type="date" id="d_dernier_mail" value="${p.dernier_mail||''}"></div>
+    </div>
+    <div class="field grow"><label>Notes &amp; prochaine action</label><textarea id="d_prochain_action">${escapeHtml(p.prochain_action||'')}</textarea></div>
+  `;
+}
+
+function renderDetailModal(){
+  const p = detailTarget;
+  if(!p) return;
+  $('#detailModalTitle').innerHTML = `${escapeHtml(p.nom)} &nbsp; ${tempBadge(p)}`;
+  $('#detailBody').innerHTML = detailEditing ? detailEditFormHTML(p) : detailReadHTML(p);
+  $('#detailActionBtn').textContent = detailEditing ? 'Enregistrer' : 'Modifier';
+
+  if(!detailEditing){
+    const btnAdd = $('#addCommentBtn');
+    if(btnAdd){
+      btnAdd.onclick = () => {
+        const txt = $('#newCommentText').value;
+        addComment(p.id, txt);
+      };
+    }
+  }
+}
+
+async function openDetailModal(p){
+  detailTarget = p;
+  detailEditing = false;
+  state.currentComments = await loadComments(p.id);
+  renderDetailModal();
+  $('#detailOverlay').classList.remove('hidden');
+}
+
+async function handleDetailAction(){
+  if(!detailTarget) return;
+  if(!detailEditing){
+    detailEditing = true;
+    renderDetailModal();
+    return;
+  }
+  const patch = {
+    nom: $('#d_nom').value.trim(),
+    genre: $('#d_genre').value.trim(),
+    potentiel_financier: Number($('#d_potentiel').value) || 0,
+    chances_closing: Number($('#d_closing').value) || 0,
+    propriete: $('#d_propriete').value.trim(),
+    interet: $('#d_interet').value.trim(),
+    dernier_contact: $('#d_dernier_contact').value || null,
+    dernier_mail: $('#d_dernier_mail').value || null,
+    prochain_action: $('#d_prochain_action').value.trim(),
+    mise_a_jour: new Date().toISOString(),
+  };
+  if(!patch.nom){ toast('Le nom du prospect est obligatoire.', 'error'); return; }
+  const { error } = await sb.from(TABLE).update(patch).eq('id', detailTarget.id);
+  if(error){ toast("Erreur d'enregistrement : "+error.message, 'error'); return; }
+  toast('Prospect mis à jour.');
+  await refreshData();
+  detailTarget = state.prospects.find(x=>x.id===detailTarget.id) || detailTarget;
+  detailEditing = false;
+  renderDetailModal();
+}
+
+function openProspectModal(prospect){
+  state.editingId = prospect ? prospect.id : null;
+  $('#prospectModalTitle').textContent = prospect ? `Modifier — ${prospect.nom}` : 'Nouveau prospect';
+  $('#prospectForm').innerHTML = buildProspectForm(prospect);
+  $('#prospectOverlay').classList.remove('hidden');
+}
+function closeOverlay(el){ el.classList.add('hidden'); }
+
+async function handleSaveProspect(){
+  const form = $('#prospectForm');
+  const payload = {};
+  FIELDS.forEach(f => { payload[f.key] = form.querySelector(`[name="${f.key}"]`).value.trim(); });
+  if(!payload.nom){ toast('Le nom du prospect est obligatoire.', 'error'); return; }
+  const ok = await saveProspect(payload, state.editingId);
+  if(ok) closeOverlay($('#prospectOverlay'));
+}
+
+/* ---------------- Event listeners ---------------- */
+function wireDynamicHandlers(){
+  $$('#view [data-action]').forEach(btn=>{
+    btn.onclick = (e)=>{
+      e.stopPropagation();
+      const tr = btn.closest('tr');
+      const id = Number(tr.dataset.id);
+      const p = state.prospects.find(x=>x.id===id);
+      const action = btn.dataset.action;
+      if(action==='edit') openProspectModal(p);
+      else if(action==='delete') openDeleteModal(p);
+      else if(action==='nrp') openNrpModal(p);
+      else if(action==='rdv') openRdvModal(p);
+      else if(action==='unfocus'){ state.focusIds.delete(p.id); saveFocusIds(); render(); }
+    };
+  });
+  $$('#view tbody tr[data-id]').forEach(tr=>{
+    tr.onclick = (e)=>{
+      if(e.target.closest('[data-action]')) return;
+      const id = Number(tr.dataset.id);
+      const p = state.prospects.find(x=>x.id===id);
+      if(p) openDetailModal(p);
+    };
+  });
+  const dashToggle = $('#dashPeriodToggle');
+  if(dashToggle) dashToggle.onclick = (e)=>{ const b=e.target.closest('button'); if(!b) return; state.dashPeriod=b.dataset.period; render(); };
+  const prodToggle = $('#prodPeriodToggle');
+  if(prodToggle) prodToggle.onclick = (e)=>{ const b=e.target.closest('button'); if(!b) return; state.prodPeriod=b.dataset.period;
+    $$('#prodPeriodToggle button').forEach(x=>x.classList.toggle('active', x===b)); buildProductivityChart(); };
+  const settingsForm = $('#settingsForm');
+  if(settingsForm) settingsForm.onsubmit = (e)=>{ e.preventDefault();
+    const url = settingsForm.url.value.trim(), key = settingsForm.key.value.trim();
+    localStorage.setItem('crmlicorne_cfg', JSON.stringify({url,key}));
+    toast('Configuration enregistrée — rechargement…'); setTimeout(()=>location.reload(), 600);
+  };
+  const colBtn = $('#colChooserBtn');
+  if(colBtn){
+    colBtn.onclick = (e)=>{ e.stopPropagation(); state.colMenuOpen = !state.colMenuOpen; render(); };
+    const colMenu = $('#colMenu');
+    if(colMenu) colMenu.onclick = (e)=> e.stopPropagation();
+    $$('#colMenu input[type=checkbox]').forEach(cb=>{
+      cb.onchange = ()=>{
+        const key = cb.dataset.col;
+        if(cb.checked) state.visibleColumns.add(key); else state.visibleColumns.delete(key);
+        state.colMenuOpen = true;
+        render();
+      };
+    });
+  }
+  const focusInput = $('#focusDaysInput');
+  if(focusInput) focusInput.onchange = (e)=>{ const v = Math.max(1, Number(e.target.value)||1); state.focusDays = v; render(); };
+  const sectorFilter = $('#sectorFilter');
+  if(sectorFilter) sectorFilter.onchange = e => { state.listSector = e.target.value; render(); };
+
+  const updateFrom = $('#updateFrom');
+  const updateTo = $('#updateTo');
+  const updateSector = $('#updateSector');
+  const updateExcludeNrp = $('#updateExcludeNrp');
+  if(updateFrom) updateFrom.onchange = e => { state.updateFrom = e.target.value; render(); };
+  if(updateTo) updateTo.onchange = e => { state.updateTo = e.target.value; render(); };
+  if(updateSector) updateSector.onchange = e => { state.updateSector = e.target.value; render(); };
+  if(updateExcludeNrp) updateExcludeNrp.onchange = e => { state.updateExcludeNrp = e.target.checked; render(); };
+  const updateResetBtn = $('#updateResetBtn');
+  if(updateResetBtn) updateResetBtn.onclick = () => {
+    state.updateFrom = ''; state.updateTo = ''; state.updateSector = ''; state.updateExcludeNrp = true; render();
+  };
+
+  const nrpFrom = $('#nrpFrom');
+  const nrpTo = $('#nrpTo');
+  const nrpSector = $('#nrpSector');
+  if(nrpFrom) nrpFrom.onchange = e => { state.nrpFrom = e.target.value; render(); };
+  if(nrpTo) nrpTo.onchange = e => { state.nrpTo = e.target.value; render(); };
+  if(nrpSector) nrpSector.onchange = e => { state.nrpSector = e.target.value; render(); };
+  const nrpResetBtn = $('#nrpResetBtn');
+  if(nrpResetBtn) nrpResetBtn.onclick = () => {
+    state.nrpFrom = ''; state.nrpTo = ''; state.nrpSector = ''; render();
+  };
+
+  const addFocusBtn = $('#addFocusBtn');
+  if(addFocusBtn) addFocusBtn.onclick = openFocusPicker;
+}
+
+let deleteTarget = null;
+function openDeleteModal(p){ deleteTarget = p; $('#deleteTargetName').textContent = p.nom; $('#deleteOverlay').classList.remove('hidden'); }
+
+let nrpTarget = null;
+function openNrpModal(p){ nrpTarget = p; $('#nrpName').textContent = p.nom; $('#nrpNote').value=''; $('#nrpOverlay').classList.remove('hidden'); }
+
+let rdvTarget = null;
+function openRdvModal(p){ rdvTarget = p; $('#rdvName').textContent = p.nom; $('#rdvDate').value = todayISO(); $('#rdvNote').value=''; $('#rdvOverlay').classList.remove('hidden'); }
+
+function initStaticHandlers(){
+  $$('.navitem').forEach(btn => btn.onclick = ()=>{ state.view = btn.dataset.view; render(); closeSidebar(); });
+  $('#addBtn').onclick = ()=> openProspectModal(null);
+  $$('[data-close]').forEach(btn => btn.onclick = ()=> closeOverlay(btn.closest('.overlay')));
+  $$('.overlay').forEach(ov => ov.addEventListener('click', e=>{ if(e.target===ov) closeOverlay(ov); }));
+  $('#saveProspectBtn').onclick = handleSaveProspect;
+  $('#detailActionBtn').onclick = handleDetailAction;
+  document.addEventListener('click', (e)=>{
+    if(state.colMenuOpen && !e.target.closest('.col-chooser')){ state.colMenuOpen = false; render(); }
+  });
+  $('#confirmDeleteBtn').onclick = async ()=>{ if(deleteTarget){ await deleteProspectById(deleteTarget.id); closeOverlay($('#deleteOverlay')); } };
+  $('#confirmNrpBtn').onclick = async ()=>{ if(nrpTarget){ await applyNrp(nrpTarget, $('#nrpNote').value); closeOverlay($('#nrpOverlay')); } };
+  $('#confirmRdvBtn').onclick = async ()=>{ if(rdvTarget){ await applyRdv(rdvTarget, {date:$('#rdvDate').value, status:$('#rdvStatus').value, note:$('#rdvNote').value}); closeOverlay($('#rdvOverlay')); } };
+
+  let searchTimer;
+  $('#searchInput').addEventListener('input', (e)=>{ clearTimeout(searchTimer); searchTimer=setTimeout(()=>{ state.search = e.target.value; render(); }, 180); });
+
+  let focusSearchTimer;
+  $('#focusPickerSearch').addEventListener('input', (e)=>{ clearTimeout(focusSearchTimer); focusSearchTimer=setTimeout(()=> renderFocusPicker(e.target.value), 150); });
+
+  $('#themeBtn').onclick = ()=>{
+    const cur = document.documentElement.dataset.theme;
+    applyTheme(cur==='dark' ? 'light' : 'dark');
+    if(state.view==='dashboard') setTimeout(buildDashboardCharts, 0);
+  };
+
+  $('#hamburgerBtn').onclick = openSidebar;
+  $('#sidebarCloseBtn').onclick = closeSidebar;
+  $('#sidebarBackdrop').onclick = closeSidebar;
+  $('#logoutBtn').onclick = ()=>{ sessionStorage.removeItem('crmlicorne_auth'); location.reload(); };
+}
+function openSidebar(){ $('#sidebar').classList.add('open'); $('#sidebarBackdrop').classList.add('show'); }
+function closeSidebar(){ $('#sidebar').classList.remove('open'); $('#sidebarBackdrop').classList.remove('show'); }
+function applyTheme(t){
+  document.documentElement.dataset.theme = t;
+  $('#themeBtn').textContent = t==='dark' ? '☀️' : '🌙';
+  localStorage.setItem('crmlicorne_theme', t);
+}
+
+/* ---------------- Floating particle field ---------------- */
+(function initParticles(){
+  const canvas = document.getElementById('particleCanvas');
+  if(!canvas) return;
+  const ctx = canvas.getContext('2d');
+  let w=0,h=0,dpr=1,particles=[];
+  function resize(){
+    dpr=Math.min(devicePixelRatio||1,2); w=innerWidth; h=innerHeight;
+    canvas.width=w*dpr; canvas.height=h*dpr; canvas.style.width=w+'px'; canvas.style.height=h+'px';
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    const count=Math.min(170,Math.max(70,Math.floor(w*h/9000)));
+    particles=Array.from({length:count},()=>({
+      x:Math.random()*w,y:Math.random()*h,r:.45+Math.random()*1.5,
+      vx:(Math.random()-.5)*.22,vy:(Math.random()-.5)*.18,
+      a:.18+Math.random()*.6,p:Math.random()*Math.PI*2
+    }));
+  }
+  function draw(t){
+    ctx.clearRect(0,0,w,h);
+    for(const p of particles){
+      p.x+=p.vx;p.y+=p.vy;p.p+=.012;
+      if(p.x<-10)p.x=w+10;if(p.x>w+10)p.x=-10;if(p.y<-10)p.y=h+10;if(p.y>h+10)p.y=-10;
+      const alpha=Math.max(.05,p.a*(.72+.28*Math.sin(p.p)));
+      ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fillStyle=`rgba(25,220,232,${alpha})`;ctx.fill();
+    }
+    // Fine connecting lines only for close particles, like a technical HUD network.
+    for(let i=0;i<particles.length;i++) for(let j=i+1;j<particles.length;j++){
+      const a=particles[i],b=particles[j],dx=a.x-b.x,dy=a.y-b.y,d=Math.hypot(dx,dy);
+      if(d<105){ctx.strokeStyle=`rgba(19,176,199,${(1-d/105)*.09})`;ctx.lineWidth=.5;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke();}
+    }
+    requestAnimationFrame(draw);
+  }
+  addEventListener('resize',resize,{passive:true}); resize(); requestAnimationFrame(draw);
+})();
+
+/* ---------------- Auth gate ---------------- */
+const APP_PASSWORD = 'Angela#110';
+function showApp(){
+  $('#loginScreen').style.display = 'none';
+  $('#app').classList.remove('locked');
+}
+function showBoot(){
+  $('#bootOverlay').classList.remove('hidden');
+  $('#bootPercent').textContent = '0';
+  $('#bootRingProgress').style.strokeDashoffset = '615';
+  $('#bootStatus').textContent = 'AUTHENTIFICATION VALIDÉE // CHARGEMENT DES MODULES';
+}
+function runBootSequence(){
+  showBoot();
+  const duration = 2900;
+  const start = performance.now();
+  const statuses = [
+    [12,'CONNEXION AU NOYAU COMMERCIAL'],[28,'CHARGEMENT DES PROSPECTS'],[46,'SYNCHRONISATION DES DONNÉES'],
+    [65,'INITIALISATION DES INDICATEURS'],[82,'CALIBRATION DU PILOTAGE'],[94,'OPTIMISATION DE L’INTERFACE'],[100,'SYSTÈME PRÊT']
+  ];
+  return new Promise(resolve=>{
+    function frame(now){
+      const pct = Math.min(100, Math.round(((now-start)/duration)*100));
+      $('#bootPercent').textContent = pct;
+      $('#bootRingProgress').style.strokeDashoffset = String(615 - (615*pct/100));
+      let msg = statuses[0][1];
+      for(const item of statuses){ if(pct >= item[0]) msg = item[1]; }
+      $('#bootStatus').textContent = msg;
+      if(pct < 100) requestAnimationFrame(frame);
+      else setTimeout(()=>{ $('#bootOverlay').classList.add('hidden'); setTimeout(()=>$('#bootOverlay').style.display='none',500); resolve(); },420);
+    }
+    requestAnimationFrame(frame);
+  });
+}
+function tryLogin(pwd){
+  if(pwd === APP_PASSWORD){
+    sessionStorage.setItem('crmlicorne_auth', 'ok');
+    $('#loginError').textContent = '';
+    $('#loginScreen').style.display = 'none';
+    $('#app').classList.remove('locked');
+    runBootSequence();
+    startApp();
+    return true;
+  }
+  $('#loginError').textContent = 'Mot de passe incorrect.';
+  $('#loginPassword').value = '';
+  $('#loginPassword').focus();
+  return false;
+}
+
+/* ---------------- Init ---------------- */
+async function startApp(){
+  applyTheme(localStorage.getItem('crmlicorne_theme') || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark':'light'));
+  initStaticHandlers();
+  await refreshData();
+  setTimeout(checkRdvReminders, 500);
+}
+
+(function initAuth(){
+  $('#loginForm').onsubmit = (e)=>{ e.preventDefault(); tryLogin($('#loginPassword').value); };
+  if(sessionStorage.getItem('crmlicorne_auth') === 'ok'){
+    showApp();
+    startApp();
+  } else {
+    $('#loginPassword').focus();
+  }
+})();
+</script>
+</body>
+</html>
