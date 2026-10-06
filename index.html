@@ -486,6 +486,32 @@ canvas#timeline{background:#01080a!important}
 @media(max-width:430px){.pd-video-wrap{width:98px!important;height:98px!important}.pd-top{grid-template-columns:minmax(0,1fr) 98px!important}}
 @media(prefers-reduced-motion:reduce){*,*:before,*:after{animation:none!important}}
 </style>
+
+<style id="fixed-live-large">
+/* Cockpit live agrandi et persistant pendant le scroll */
+.phone-dashboard{
+ position:fixed!important;top:10px!important;left:50%!important;transform:translateX(-50%)!important;z-index:500!important;
+ width:min(900px,calc(100% - 20px))!important;max-width:900px!important;margin:0!important;
+ min-height:190px!important;
+}
+body{padding-top:215px!important}
+.direction-panel{scroll-margin-top:230px}
+@media(max-width:600px){
+ .phone-dashboard{top:7px!important;width:calc(100% - 14px)!important;min-height:178px!important}
+ body{padding-top:202px!important}
+ .pd-top{grid-template-columns:minmax(0,1fr) 150px!important}
+ .pd-video-wrap{width:150px!important;height:150px!important}
+ .pd-score{font-size:44px!important}
+ .pd-status{font-size:11px!important}
+ .pd-change{font-size:10px!important}
+ .pd-zones{margin-top:9px!important}
+}
+@media(min-width:601px){
+ .pd-top{grid-template-columns:minmax(0,1fr) 190px!important}
+ .pd-video-wrap{width:190px!important;height:190px!important}
+ .pd-score{font-size:52px!important}
+}
+</style>
 </head>
 <body>
 
@@ -775,7 +801,7 @@ function setStatus(t,on=false){
 }
 function clamp(x,a=0,b=100){return Math.max(a,Math.min(b,x))}
 function color(v){return v<30?'#19f0ff':v<55?'#ff9f43':v<78?'#ff4d4d':'#ff1616'}
-const directionalState={sag:0,rot:0,lat:0,back:0,body:0,hands:0};
+const directionalState={sag:0,rot:0,lat:0,back:0,body:0,hands:0,pelvis:0,handHeight:0,shoulderDepth:0,legs:0};
 function directionColor(v,activity=1){
   const a=Math.abs(v);
   if(a<10)return '#8f9aa3'; // squelette neutre
@@ -789,7 +815,7 @@ function directionColor(v,activity=1){
 }
 function setAxis(id,value){
   const v=clamp(value,-100,100);
-  const map={'ax-sag':'sag','ax-rot':'rot','ax-lat':'lat','ax-back':'back','ax-body':'body','ax-hands':'hands'};
+  const map={'ax-sag':'sag','ax-rot':'rot','ax-lat':'lat','ax-back':'back','ax-body':'body','ax-hands':'hands','ax-pelvis':'pelvis','ax-hand-height':'handHeight','ax-shoulder-depth':'shoulderDepth','ax-legs':'legs'};
   if(map[id])directionalState[map[id]]=v;
   const marker=document.getElementById(id),label=document.getElementById(id+'-value');
   if(marker){
@@ -841,6 +867,7 @@ function feature(imageK,worldK){
  w=w.map(q=>q?{...q,x:q.x*cy+q.z*sy,z:-q.x*sy+q.z*cy}:q);
  const vv=i=>{const q=imageK[i];return q?(q.visibility??1):0},zva=ids=>mean(ids.map(vv));
  const ls=w[idx.left_shoulder],rs=w[idx.right_shoulder],lh=w[idx.left_hip],rh=w[idx.right_hip];
+ const pelvisTurn=Math.atan2((RH0.z-LH0.z),(RH0.x-LH0.x))*180/Math.PI;
  const c=mid(mid(ls,rs),mid(lh,rh));
  const scale=Math.max(.08,dist(ls,rs));
  const p=w.map(q=>q?{x:(q.x-c.x)/scale,y:(q.y-c.y)/scale,z:(q.z-c.z)/scale,s:((q.visibility??1)+(q.presence??1))/2}:null);
@@ -867,6 +894,11 @@ function feature(imageK,worldK){
   torsoAngle:angle(hip,sh),
   torsoLean:Math.abs(sh.x),
   torsoDepth:Math.abs(sh.z),
+  torsoDepthSigned:sh.z,
+  pelvisTurn,
+  handHeight:mean([p[idx.left_wrist]?.y||0,p[idx.right_wrist]?.y||0])-sh.y,
+  shoulderDepth:sh.z-hip.z,
+  legCross:(p[idx.left_ankle]?.x??0)>(p[idx.right_ankle]?.x??0)?1:0,
   shoulderWidth:S('left_shoulder','right_shoulder'),
   pelvisWidth:S('left_hip','right_hip'),
   arms:{
@@ -1025,44 +1057,37 @@ function updateDirectionalAxes(f){
   const shoulderMid=mid(f.p[idx.left_shoulder],f.p[idx.right_shoulder]);
   const hipMid=mid(f.p[idx.left_hip],f.p[idx.right_hip]);
   const earMid=(le&&re)?mid(le,re):null;
+  const wristMid=mid(f.p[idx.left_wrist],f.p[idx.right_wrist]);
 
-  // Conventions d'observation demandées :
-  // négatif = gauche / bas / avant ; positif = droite / haut / arrière.
-  // Ces axes sont des indicateurs descriptifs, pas des conclusions psychologiques.
-
-  // Tête — sagittal : tête vers le haut = rouge, vers le bas = vert.
-  const headUp = baseline?.headY!=null
-    ? -(nose.y-baseline.headY)*4.8
-    : -(nose.y-shoulderMid.y)*1.8;
-
-  // Tête — rotatif : rotation vers la gauche = vert, vers la droite = rouge.
+  // Conventions descriptives : négatif = gauche / bas / avant / détendu ; positif = droite / haut / arrière / croisé.
+  const headUp = baseline?.headY!=null ? -(nose.y-baseline.headY)*4.8 : -(nose.y-shoulderMid.y)*1.8;
   const yaw = (earMid&&!f.back) ? (nose.x-earMid.x)*6.0 : 0;
-
-  // Tête — latéral : inclinaison/déplacement gauche = vert, droite = rouge.
   const headLat = (nose.x-shoulderMid.x)*3.4;
-
-  // Dos — sagittal : avant = vert, arrière = rouge.
-  // Le centre du bassin sert de référence stable pour la profondeur du tronc.
   const torsoZ=f.center?.z ?? 0;
-  const back = baseline?.torsoZ!=null
-    ? (torsoZ-baseline.torsoZ)*5.0
-    : torsoZ*2.5;
-
-  // Corps — inclinaison : gauche = vert, droite = rouge.
+  const back = baseline?.torsoZ!=null ? (torsoZ-baseline.torsoZ)*5.0 : torsoZ*2.5;
   const bodyLean=(shoulderMid.x-hipMid.x)*3.8;
 
-  // Mains — activité réelle des poignets, droite dominante = rouge,
-  // gauche dominante = vert.
+  // Mains : activité droite/gauche (axe historique) + hauteur des deux mains.
   let handAxis=0;
   if(lastFeature?.p){
-    const rw=f.p[idx.right_wrist], lw=f.p[idx.left_wrist];
-    const pr=lastFeature.p[idx.right_wrist], pl=lastFeature.p[idx.left_wrist];
-    if(rw&&lw&&pr&&pl){
-      const rightMove=dist(rw,pr);
-      const leftMove=dist(lw,pl);
-      handAxis=(rightMove-leftMove)*900;
-    }
+    const rw=f.p[idx.right_wrist], lw=f.p[idx.left_wrist], pr=lastFeature.p[idx.right_wrist], pl=lastFeature.p[idx.left_wrist];
+    if(rw&&lw&&pr&&pl) handAxis=(dist(rw,pr)-dist(lw,pl))*900;
   }
+  const handHeight = baseline?.handHeight!=null
+    ? -(f.handHeight-baseline.handHeight)*55
+    : -f.handHeight*45;
+
+  // Bassin : rotation relative gauche/droite. Une rotation plus positive est affichée à droite/rouge.
+  let pelvisAxis=baseline?.pelvisTurn!=null ? (f.pelvisTurn-baseline.pelvisTurn)*2.2 : f.pelvisTurn*.65;
+
+  // Épaules : profondeur avant/arrière, avec le même code couleur que le dos.
+  const shoulderDepth=baseline?.shoulderDepth!=null
+    ? (f.shoulderDepth-baseline.shoulderDepth)*55
+    : f.shoulderDepth*45;
+
+  // Jambes : heuristique de croisement à partir de l'ordre gauche/droite des chevilles.
+  // 0 = détendues/non croisées (vert), 100 = croisées (rouge).
+  const legCross=f.legCross?100:-100;
 
   setAxis('ax-sag',headUp);
   setAxis('ax-rot',yaw);
@@ -1070,8 +1095,11 @@ function updateDirectionalAxes(f){
   setAxis('ax-back',back);
   setAxis('ax-body',bodyLean);
   setAxis('ax-hands',handAxis);
+  setAxis('ax-pelvis',pelvisAxis);
+  setAxis('ax-hand-height',handHeight);
+  setAxis('ax-shoulder-depth',shoulderDepth);
+  setAxis('ax-legs',legCross);
 }
-
 
 function drawRhythm(){
  const c=document.getElementById('rhythmCanvas');if(!c)return;
@@ -1346,9 +1374,10 @@ async function processFrame(ts){
    if(f){
     const dt=lastFrameTime?(ts-lastFrameTime)/1000:0;
     const mv=motionVector(f,dt);lastFrameTime=ts;
+    updateDirectionalAxes(f);
     {const vt=viewText(f)+(persons.length>1?' · '+persons.length+' personnes, touchez la cible sur l’aperçu':'');document.getElementById('tracking').textContent='Tracking : '+Math.round(f.confidence*100)+'% · '+vt;const vi=document.getElementById('viewInfo');if(vi)vi.textContent='Vue : '+vt}
     if(calibrating){
-     calib.push({p:postureVector(f),m:mv,conf:f.confidence,torsoSigned:f.center.z,yaw:f.yaw,back:f.back?1:0});
+     calib.push({p:postureVector(f),m:mv,conf:f.confidence,torsoSigned:f.center.z,yaw:f.yaw,back:f.back?1:0,pelvisTurn:f.pelvisTurn,handHeight:f.handHeight,shoulderDepth:f.shoulderDepth,legCross:f.legCross});
      const elapsed=Date.now()-calibStart;
      setStatus('Construction de référence '+Math.min(100,Math.round(elapsed/160))+'%',true);document.getElementById('mobilePattern').textContent='Calibration — ne pas interpréter';
      drawSkeleton(k,{z:{head:0,shoulders:0,arms:0,hands:0,torso:0,legs:0,feet:0}});
@@ -1358,7 +1387,7 @@ async function processFrame(ts){
      addTimelineSample(d,Date.now());addEvent(d);adaptiveUpdate(d,f);
     }else{
      const z={head:0,shoulders:0,arms:0,hands:0,torso:0,legs:0,feet:0,global:0};
-     drawSkeleton(k,{z});drawMini(k,{z});updateLandmarks(f);updateDirectionalAxes(f);
+     drawSkeleton(k,{z});drawMini(k,{z});updateLandmarks(f);
      document.getElementById('mobileScore').textContent='—';document.getElementById('mobilePattern').textContent='Construire puis valider la référence';
     }
     lastFeature=f;
@@ -1438,9 +1467,9 @@ drawTimeline();
 
 
 
-<div class="card" style="padding:14px;margin-top:10px">
+<div class="card direction-panel" style="padding:14px;margin-top:10px">
  <h2 style="margin-top:0">Axes directionnels</h2>
- <div class="small" style="margin-bottom:9px">Lecture heuristique inspirée des conventions demandées — ce sont des indicateurs d’observation, pas des preuves psychologiques.</div>
+ <div class="small" style="margin-bottom:9px">Lecture heuristique des directions observables. Les axes comparent la posture actuelle à la référence lorsqu’elle existe.</div>
  <div class="direction-grid">
   <div class="axis-card"><div class="axis-head"><span class="axis-name">Tête · axe sagittal</span><span class="axis-value" id="ax-sag-value">0</span></div><div class="axis-bar"><i class="axis-marker" id="ax-sag"></i></div><div class="axis-labels"><span>↓ vert</span><span>neutre</span><span>↑ rouge</span></div></div>
   <div class="axis-card"><div class="axis-head"><span class="axis-name">Tête · axe rotatif</span><span class="axis-value" id="ax-rot-value">0</span></div><div class="axis-bar"><i class="axis-marker" id="ax-rot"></i></div><div class="axis-labels"><span>gauche · vert</span><span>neutre</span><span>droite · rouge</span></div></div>
@@ -1448,8 +1477,13 @@ drawTimeline();
   <div class="axis-card"><div class="axis-head"><span class="axis-name">Dos · sagittal</span><span class="axis-value" id="ax-back-value">0</span></div><div class="axis-bar"><i class="axis-marker" id="ax-back"></i></div><div class="axis-labels"><span>avant · vert</span><span>neutre</span><span>arrière · rouge</span></div></div>
   <div class="axis-card"><div class="axis-head"><span class="axis-name">Corps · inclinaison</span><span class="axis-value" id="ax-body-value">0</span></div><div class="axis-bar"><i class="axis-marker" id="ax-body"></i></div><div class="axis-labels"><span>gauche · vert</span><span>neutre</span><span>droite · rouge</span></div></div>
   <div class="axis-card"><div class="axis-head"><span class="axis-name">Mains · activité</span><span class="axis-value" id="ax-hands-value">0</span></div><div class="axis-bar"><i class="axis-marker" id="ax-hands"></i></div><div class="axis-labels"><span>gauche · vert</span><span>neutre</span><span>droite · rouge</span></div></div>
+  <div class="axis-card"><div class="axis-head"><span class="axis-name">Bassin · orientation</span><span class="axis-value" id="ax-pelvis-value">0</span></div><div class="axis-bar"><i class="axis-marker" id="ax-pelvis"></i></div><div class="axis-labels"><span>gauche · vert</span><span>neutre</span><span>droite · rouge</span></div></div>
+  <div class="axis-card"><div class="axis-head"><span class="axis-name">Mains · hauteur</span><span class="axis-value" id="ax-hand-height-value">0</span></div><div class="axis-bar"><i class="axis-marker" id="ax-hand-height"></i></div><div class="axis-labels"><span>bas · vert</span><span>neutre</span><span>haut · rouge</span></div></div>
+  <div class="axis-card"><div class="axis-head"><span class="axis-name">Épaules · profondeur</span><span class="axis-value" id="ax-shoulder-depth-value">0</span></div><div class="axis-bar"><i class="axis-marker" id="ax-shoulder-depth"></i></div><div class="axis-labels"><span>avant · vert</span><span>neutre</span><span>arrière · rouge</span></div></div>
+  <div class="axis-card"><div class="axis-head"><span class="axis-name">Jambes · position</span><span class="axis-value" id="ax-legs-value">0</span></div><div class="axis-bar"><i class="axis-marker" id="ax-legs"></i></div><div class="axis-labels"><span>détendues · vert</span><span>neutre</span><span>croisées · rouge</span></div></div>
  </div>
 </div>
+
 <div class="card" style="padding:14px;margin-top:10px">
  <h2 style="margin-top:0">Rythme des mouvements</h2>
  <div class="rhythm-box"><canvas id="rhythmCanvas"></canvas></div>
