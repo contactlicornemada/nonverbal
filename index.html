@@ -506,8 +506,47 @@ canvas#timeline{background:#01080a!important}
  .phone-dashboard .pd-video-wrap{height:min(44vw,470px)!important;min-height:280px!important}
 }
 </style>
+
+<style id="data-only-reference-v1">
+/* MODE DONNÉES : la caméra sert uniquement de source aux landmarks MediaPipe.
+   Aucune image vidéo n'est affichée ni enregistrée. */
+#video, #phoneVideo, #overlay, #miniCanvas, #phoneMini {
+  position:absolute!important;
+  width:1px!important;height:1px!important;
+  min-width:1px!important;min-height:1px!important;
+  opacity:0!important;
+  visibility:hidden!important;
+  pointer-events:none!important;
+  left:-9999px!important;top:-9999px!important;
+}
+.phone-dashboard{position:relative!important;top:auto!important;left:auto!important;transform:none!important;
+  width:min(760px,calc(100% - 20px))!important;max-width:760px!important;margin:12px auto!important;
+  max-height:none!important;overflow:visible!important}
+.pd-video-wrap{display:none!important}
+body{padding-top:0!important}
+.data-only-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  max-width:760px;margin:10px auto;padding:12px 14px;border:1px solid #16434a;
+  border-radius:12px;background:#06161a;color:#dffcff;font:600 11px/1.4 system-ui}
+.data-only-banner b{color:#19f0ff}
+.data-reference{max-width:760px;margin:10px auto;display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.data-cell{padding:10px;border:1px solid #17353b;border-radius:10px;background:#071419}
+.data-cell span{display:block;color:#77939b;font-size:9px;text-transform:uppercase;letter-spacing:.06em}
+.data-cell strong{display:block;margin-top:4px;color:#e9fbff;font:700 16px 'Share Tech Mono',monospace}
+@media(max-width:600px){.data-only-banner,.data-reference{margin-left:10px;margin-right:10px}.data-reference{grid-template-columns:repeat(2,1fr)}}
+</style>
 </head>
 <body>
+<div class="data-only-banner" id="dataOnlyBanner">
+  <div><b>MODE DONNÉES</b> · La caméra sert uniquement à calculer les points corporels MediaPipe.</div>
+  <div id="dataPrivacy">Aucune vidéo enregistrée</div>
+</div>
+<div class="data-reference" id="dataReference">
+  <div class="data-cell"><span>Échantillons</span><strong id="refSamples">0</strong></div>
+  <div class="data-cell"><span>Confiance</span><strong id="refConfidence">—</strong></div>
+  <div class="data-cell"><span>Stabilité</span><strong id="refStability">—</strong></div>
+  <div class="data-cell"><span>État</span><strong id="refDataState">ATTENTE</strong></div>
+</div>
+
 
 <div class="bond-bar">
   <svg class="gb" viewBox="0 0 100 100" aria-hidden="true">
@@ -575,7 +614,7 @@ canvas#timeline{background:#01080a!important}
   <div class="camera">
    <video id="video" autoplay muted playsinline></video>
    <canvas id="overlay"></canvas>
-   <div class="cameraLabel">OBSERVATION FACTUELLE · baseline personnalisée</div>
+   <div class="cameraLabel">DONNÉES CORPORELLES · vidéo non enregistrée</div>
    <div class="live"><i class="dot" id="liveDot"></i><span id="status">En attente</span></div>
   </div>
   <div class="controls">
@@ -958,12 +997,13 @@ function diversityScore(P){
 function makeBaseline(samples){
  const P=samples.map(s=>s.p),M=samples.map(s=>s.m);
  const torsoSigned=median(samples.map(s=>s.torsoSigned??0));
- const med=P[0].map((_,i)=>median(P.map(x=>x[i])));
+ const trimmedMean=(arr,trim=.10)=>{const x=[...arr].sort((a,b)=>a-b);if(x.length<10)return mean(x);const cut=Math.floor(x.length*trim);return mean(x.slice(cut,Math.max(cut+1,x.length-cut)))};
+ const med=P[0].map((_,i)=>trimmedMean(P.map(x=>x[i]),.10));
  const scale=med.map((_,i)=>mad(P.map(x=>x[i])));
  const motionMed=M[0].map((_,i)=>median(M.map(x=>x[i])));
  const motionScale=motionMed.map((_,i)=>mad(M.map(x=>x[i])));
  const prototypes=[],step=Math.max(1,Math.floor(P.length/14));
- for(let i=0;i<P.length;i+=step)prototypes.push(P[i]);
+ for(let i=0;i<P.length;i+=step){const chunk=P.slice(i,Math.min(P.length,i+step));prototypes.push(chunk[0].map((_,j)=>mean(chunk.map(x=>x[j]))));}
  const act=mean(samples.map(x=>mean(x.m)));
  const diversity=diversityScore(P);
  const confidence=mean(samples.map(x=>x.conf||.8));
@@ -1292,8 +1332,12 @@ function showReferenceQuality0(){
 function finishCalibration(){
  const mr=document.getElementById('mobileRefState'); if(mr){mr.textContent='● Référence à valider';mr.style.background='rgba(105,69,20,.94)';}
  calibrating=false;
- if(calib.length<45){setStatus('Référence insuffisante');alert('Référence insuffisante. Recommencez avec toute la personne visible.');return}
+ if(calib.length<60){setStatus('Référence insuffisante');alert('Référence insuffisante. Recommencez avec toute la personne visible.');return}
  candidate=makeBaseline(calib);referenceState='candidate';
+ const rs=document.getElementById('refSamples');if(rs)rs.textContent=candidate.samples;
+ const rc=document.getElementById('refConfidence');if(rc)rc.textContent=Math.round(candidate.confidence*100)+'%';
+ const rst=document.getElementById('refStability');if(rst)rst.textContent=Math.max(0,100-Math.round(candidate.activation*100))+'%';
+ const rds=document.getElementById('refDataState');if(rds)rds.textContent='PRÊT';
  document.getElementById('validateRef').style.display='inline-block';
  setStatus('Référence candidate — à valider',true);document.getElementById('mobilePattern').textContent=candidate.activation>.18?'⚠ Référence très dynamique — à vérifier':'Référence candidate — à valider';
  document.getElementById('refScore').textContent=candidate.quality+'%';
@@ -1376,9 +1420,12 @@ async function processFrame(ts){
     const mv=motionVector(f,dt);lastFrameTime=ts;
     {const vt=viewText(f)+(persons.length>1?' · '+persons.length+' personnes, touchez la cible sur l’aperçu':'');document.getElementById('tracking').textContent='Tracking : '+Math.round(f.confidence*100)+'% · '+vt;const vi=document.getElementById('viewInfo');if(vi)vi.textContent='Vue : '+vt}
     if(calibrating){
-     calib.push({p:postureVector(f),m:mv,conf:f.confidence,torsoSigned:f.center.z,yaw:f.yaw,back:f.back?1:0});
+     calib.push({p:postureVector(f),m:mv,conf:f.confidence,torsoSigned:f.center.z,yaw:f.yaw,back:f.back?1:0,pelvisYaw:f.pelvisYaw??0,handHeight:f.handHeight??0,shoulderBack:f.shoulderBack??0,legsCross:f.legsCross??0,legsRelax:f.legsRelax??0});
+     const rs=document.getElementById('refSamples');if(rs)rs.textContent=calib.length;
+     const rc=document.getElementById('refConfidence');if(rc)rc.textContent=Math.round(f.confidence*100)+'%';
+     const state=document.getElementById('refDataState');if(state)state.textContent='COLLECTE';
      const elapsed=Date.now()-calibStart;
-     setStatus('Construction de référence '+Math.min(100,Math.round(elapsed/160))+'%',true);document.getElementById('mobilePattern').textContent='Calibration — ne pas interpréter';
+     setStatus('Construction de référence '+Math.min(100,Math.round(elapsed/120))+'%',true);document.getElementById('mobilePattern').textContent='Calibration — ne pas interpréter';
      drawSkeleton(k,{z:{head:0,shoulders:0,arms:0,hands:0,torso:0,legs:0,feet:0}});
     }else if(baseline){
      const d=smoothDeviation(deviation(f,mv));drawSkeleton(k,d);drawMini(k,d);try{updateUI(d,f)}catch(err){console.warn('updateUI',err)}
@@ -1407,29 +1454,17 @@ function addEvent(d){
  const box=document.getElementById('events');if(box.querySelector('.small'))box.innerHTML='';box.prepend(e);while(box.children.length>6)box.lastChild.remove();
 }
 async function start(){
- if(stream){paused=false;running=true;setStatus(baseline?'Analyse en direct':'Caméra active — construire référence',true);raf=requestAnimationFrame(processFrame);return}
+ if(stream){paused=false;running=true;setStatus(baseline?'Analyse des données en direct':'Source de données active — construire référence',true);raf=requestAnimationFrame(processFrame);return}
  try{
   stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'user',width:{ideal:960},height:{ideal:540}},audio:false});
-  /* Un seul flux caméra, affiché dans les deux vues. On force explicitement les propriétés
-     nécessaires sur Android/Chrome avant d'appeler play(). */
+  // MODE DONNÉES : le flux caméra est une source locale de frames pour MediaPipe.
+  // Aucun flux n'est enregistré, exporté ou affiché à l'écran.
   video.muted=true; video.autoplay=true; video.playsInline=true; video.srcObject=stream;
-  if(phoneVideo){
-    phoneVideo.muted=true; phoneVideo.autoplay=true; phoneVideo.playsInline=true;
-    phoneVideo.srcObject=stream;
-    phoneVideo.style.transform=mirror?'scaleX(-1)':'none';
-    phoneVideo.onloadedmetadata=()=>{ phoneVideo.play().catch(err=>console.warn('phoneVideo.play',err)); };
-  }
   await video.play();
-  if(phoneVideo && phoneVideo.readyState < 2){
-    await new Promise(resolve=>{
-      const done=()=>{phoneVideo.removeEventListener('loadeddata',done);resolve()};
-      phoneVideo.addEventListener('loadeddata',done,{once:true});
-      setTimeout(resolve,1200);
-    });
-  }
-  if(phoneVideo) await phoneVideo.play().catch(err=>console.warn('phoneVideo.play',err));
+  const privacy=document.getElementById('dataPrivacy');
+  if(privacy)privacy.textContent='Flux local · aucune vidéo enregistrée';
   if(!poseLandmarker)await initModel();
-  running=true;sessionStart=Date.now();patternState.stableSig=[];patternState.candidateSig=null;patternState.current='Stable';patternState.currentSince=performance.now();timelinePatternEvents.length=0;setStatus(baseline?'Analyse en direct':'Caméra active — construire référence',true);raf=requestAnimationFrame(processFrame);
+  running=true;sessionStart=Date.now();patternState.stableSig=[];patternState.candidateSig=null;patternState.current='Stable';patternState.currentSince=performance.now();timelinePatternEvents.length=0;setStatus(baseline?'Analyse des données en direct':'Source de données active — construire référence',true);raf=requestAnimationFrame(processFrame);
  }catch(e){console.error(e);setStatus('Caméra/modèle impossible');alert('Autorisez la caméra et utilisez HTTPS (GitHub Pages convient). Si le modèle Heavy ne charge pas, vérifiez la connexion internet.')}
 }
 function calibrate(){
@@ -1437,7 +1472,7 @@ function calibrate(){
  calib=[];candidate=null;lastFeature=null;lastVideoTime=-1;lastFrameTime=0;resetRealtimeSmoothing();calibrating=true;calibStart=Date.now();
  document.getElementById('validateRef').style.display='none';
  setStatus('Recherche de configurations corporelles représentatives…',true);
- setTimeout(()=>{if(calibrating)finishCalibration()},16000);
+ setTimeout(()=>{if(calibrating)finishCalibration()},12000);
 }
 document.getElementById('start').onclick=start;
 document.getElementById('calibrate').onclick=calibrate;
